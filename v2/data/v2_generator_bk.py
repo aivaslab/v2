@@ -9,7 +9,7 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 
-from util import conf
+from v2.util import conf
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -74,7 +74,7 @@ def linspace_sphere(u, v, r, polar=True):
     return coords_xyz
 
 
-def get_parallel_sphere(s_col, s_row, p_col, p_row, d, polar=True):
+def get_cams(s_col, s_row, p_col, p_row, d, polar=True):
     """A function to generate views such that:
         the center of each view is on the sphere, and the center will shoot a ray to the center of the object
         surrounding the view center, there will be multiple rays parallel to the center ray
@@ -280,10 +280,16 @@ def e2f_stepped(torch_cams_edges, torch_faces_xyz, face_interval, edge_interval)
 
 
 def get_modelnet_pickle_files(data_dir):
-    train_files = sorted(glob.glob(os.path.join(data_dir, '*', 'train', '*.pickle')))
-    test_files = sorted(glob.glob(os.path.join(data_dir, '*', 'test', '*.pickle')))
+    def sort_func(x):
+        no = os.path.splitext(os.path.basename(x))[0].split('_')[-1]
+        ca = '_'.join(os.path.splitext(os.path.basename(x))[0].split('_')[:-1])
+        no = int(no)
+        return ca, no
 
-    return train_files + test_files
+    train_files = glob.glob(os.path.join(data_dir, '*', 'train', '*.pickle'))
+    test_files = glob.glob(os.path.join(data_dir, '*', 'test', '*.pickle'))
+
+    return sorted(train_files + test_files, key=sort_func)
 
 
 def render_dsc_img(ip2l0_d_min, ip2l0_sin, ip2l0_cos, row_num, col_num, cam_settings, render_dir):
@@ -305,7 +311,7 @@ def render_dsc_img(ip2l0_d_min, ip2l0_sin, ip2l0_cos, row_num, col_num, cam_sett
             plt.savefig(f, bbox_inches='tight')
 
 
-def generate_parallel_sphere():
+def generate_v2():
     nv_start = 1  # number of views in the start condition
     side = 200  # number of columns and rows per view in the start condition,  224 for multi-view, 128 for sphere
     c = nv_start * side ** 2  # total number of pixels, 4 is 4 views, 50 * 50 is the pixels per view
@@ -318,10 +324,16 @@ def generate_parallel_sphere():
         p_row = fc
         d = 1 / side
 
+        s_col = 1
+        s_row = 1 + 2
+        p_col = 400
+        p_row = 100
+        d = 1 / side
+
         cam_settings = '%d_%d_%d_%d_%.4f' % (s_col, s_row - 2, p_col, p_row, d)
         print('Cam settings: %s' % cam_settings)
         # Cam Settings
-        np_cams_xyz, np_cams_edges = get_parallel_sphere(s_col, s_row, p_col, p_row, d, polar=False)
+        np_cams_xyz, np_cams_edges = get_cams(s_col, s_row, p_col, p_row, d, polar=False)
 
         # Data Settings
         data_dir = conf.ModelNet40FacesNP_DIR
@@ -355,10 +367,11 @@ def generate_parallel_sphere():
                                                                         edge_interval=256)
             # Rendering depth, sine, cosine
             render_dsc_img(ip2l0_d_min, ip2l0_sin, ip2l0_cos, side, nv_start * side, cam_settings, render_dir)
+        break
 
 
 def main():
-    generate_parallel_sphere()
+    generate_v2()
 
 
 if __name__ == '__main__':
