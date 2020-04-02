@@ -2,15 +2,19 @@ import os
 import torch
 import glob
 import matplotlib
-# matplotlib.use('TKAGG')
+matplotlib.use('TKAGG')
 import matplotlib.pyplot as plt
-import trimesh
+import pickle
 import numpy as np
 
+import trimesh
 from trimesh.ray.ray_triangle import RayMeshIntersector
 from trimesh import creation
 from mpl_toolkits.mplot3d import Axes3D
 from v2.util import conf
+
+
+DEVICE = 'cuda'
 
 
 class V2Generator:
@@ -20,20 +24,25 @@ class V2Generator:
         self.h = h  # Height of each view, in pixels
         self.w = w  # Width of each view, in pixels
         self.d = d  # The distance between two nearest view points
-        self.r = r
+        self.r = r  # The radius of the ray sphere
         self.polar = polar  # Include the polar point or not
         self.s_view = self.uv_sphere()
         # self.s_view = self.trimesh_uv_sphere()
         self.ray_origins, self.ray_edges, self.ray_directions = self.get_rays()
-        
+        self.ray_orig, self.ray_dire = self._np2torch(self.ray_origins, self.ray_directions)  # Torch tensor
+
         self.obj_file = None
         self.mesh = None
         self.convex_hull = None
 
-        self.convex_hull_v2_d = self.mesh_v2_d = None  # Ray travelling distance, range [0, 1] as it is inside a unit sphere
-        self.convex_hull_v2_a = self.mesh_v2_a = None  # Incident angle, range [0, pi/2]
-        self.convex_hull_v2_s = self.mesh_v2_s = None  # Sine of incident angle, range [0, 1]
-        self.convex_hull_v2_c = self.mesh_v2_c = None  # Cosine of incident angle, range [0, 1]
+        self.convh_v2_d = self.mesh_v2_d = None  # Ray travelling distance, range [0, 1] as it is inside a unit sphere
+        self.convh_v2_a = self.mesh_v2_a = None  # Incident angle, range [0, pi/2]
+        self.convh_v2_s = self.mesh_v2_s = None  # Sine of incident angle, range [0, 1]
+        self.convh_v2_c = self.mesh_v2_c = None  # Cosine of incident angle, range [0, 1]
+
+        self.convh_v2_p = self.mesh_v2_p = None  # Intersection points of each ray and the mesh
+
+        self.v2 = None
 
     def get_rays(self):
         """ A function to generate views such that:
@@ -137,34 +146,324 @@ class V2Generator:
 
     def load_obj(self, obj_file):
         self.obj_file = obj_file
-        
+
         loaded_obj = trimesh.exchange.obj.load_obj(open(obj_file, 'r'))
         verts = loaded_obj['vertices']
         faces = loaded_obj['faces']
 
         center = verts.mean(0)
         verts = verts - center
-        scale = np.max(np.abs(verts)) * 2  # Scale to fit a sphere of diameter 1
+        scale = np.max(np.abs(verts)) * 2 * np.sqrt(3) # Scale to fit a sphere of diameter 1
         verts = verts / scale
 
         self.mesh = mesh = trimesh.Trimesh(vertices=verts, faces=faces)
         self.convex_hull = convex_hull = self.mesh.convex_hull
         return mesh, convex_hull
-    
-    def v2repr(self):
-        self.mesh_v2_d, self.mesh_v2_a, self.mesh_v2_s, self.mesh_v2_c = self.v2repr_core(self.mesh)
-        self.convex_hull_v2_d, self.convex_hull_v2_a, self.convex_hull_v2_s, self.convex_hull_v2_c = self.v2repr_core(self.convex_hull)
 
-    def v2repr_core(self, mesh):
-        """ Trimesh mesh to generate v2 representation
+    def v2_to_npy(self, dst):
+        with open(dst, 'wb+') as f:
+            pickle.dump(self.v2, f)
+
+    def v2repr(self, method):
+        if method == 'trimesh':
+            v2repr_core = self._v2repr_trimesh
+        elif method == 'e2f':
+            v2repr_core = self._v2repr_e2f
+        elif method == 'mt':
+            v2repr_core = self._v2repr_mt
+        else:
+            raise ValueError('Unsupported V2 method: {}'.format(method))
+
+        self.mesh_v2_d, self.mesh_v2_a, self.mesh_v2_s, self.mesh_v2_c, self.mesh_v2_p = v2repr_core(convh=False)
+        self.convh_v2_d, self.convh_v2_a, self.convh_v2_s, self.convh_v2_c, self.convh_v2_p = v2repr_core(convh=True)
+        self.v2 = np.dstack([self.mesh_v2_d, self.mesh_v2_s, self.mesh_v2_c,
+                             self.convh_v2_d, self.convh_v2_s, self.convh_v2_c])
+
+    def _v2repr_mt(self, convh):
+        """ Möller–Trumbore intersection algorithm
+        Ref: https://en.wikipedia.org/wiki/M%C3%B6ller%E2%80%93Trumbore_intersection_algorithm
+        Ref: https://github.com/johnnovak/raytriangle-test
+        """
+        def ray_triangle_intersect(r_orig, r_dire, v0, v1, v2):
+            v0v1 = v1 - v0
+            v0v2 = v2 - v0
+            pvec = r_dire.cross(v0v2)
+
+            det = torch.sum(v0v1 * pvec, dim=2)
+
+            inv_det = 1.0 / det
+            tvec = r_orig - v0
+            u = torch.sum(tvec * pvec, dim=2) * inv_det
+
+            qvec = tvec.cross(v0v1)
+            v = torch.sum(r_dire * qvec, dim=2) * inv_det
+
+            # No intersection conditions
+            # If determinant is near zero, ray lies in plane of triangle
+            # Test triangle bounds by u, v
+            intersected = ~((det < 0.000001) | (u < 0) | (u > 1) | (v < 0) | (u + v > 1))
+
+            mt_d = torch.sum(v0v2 * qvec, dim=2) * inv_det  # Ray travelling distance from every ray to every triangle
+            mt_d = mt_d[intersected]
+
+            mt_tri_i, mt_ray_i = torch.where(intersected)
+            return mt_d, mt_tri_i, mt_ray_i
+
+        if convh:
+            mesh = self.convex_hull
+        else:
+            mesh = self.mesh
+
+        triangles = torch.tensor(mesh.triangles).to(DEVICE)
+
+        # Break large matrix into small batches to save GPU memory
+        ray_size = 512
+        tri_size = 16384
+
+        tri_batches = torch.split(triangles, tri_size)
+        ray_orig_batches = torch.split(self.ray_orig, ray_size)
+        ray_dire_batches = torch.split(self.ray_dire, ray_size)
+
+        all_d = []
+        all_tri_i = []
+        all_ray_i = []
+
+        # Loop every batch of rays and triangles
+        for i in range(len(ray_dire_batches)):
+            for j in range(len(tri_batches)):
+                tri = tri_batches[j]
+                v0 = tri[:, 0, :]
+                v1 = tri[:, 1, :]
+                v2 = tri[:, 2, :]
+                ray_orig = ray_orig_batches[i]
+                ray_dire = ray_dire_batches[i]
+
+                v0 = v0.repeat(len(ray_dire), 1, 1).permute(1, 0, 2)
+                v1 = v1.repeat(len(ray_dire), 1, 1).permute(1, 0, 2)
+                v2 = v2.repeat(len(ray_dire), 1, 1).permute(1, 0, 2)
+                ray_orig = ray_orig.repeat(len(v0), 1, 1)
+                ray_dire = ray_dire.repeat(len(v0), 1, 1)
+
+                d_, tri_i, ray_i = ray_triangle_intersect(ray_orig, ray_dire, v0, v1, v2)
+                tri_i += j * tri_size
+                ray_i += i * ray_size
+                all_d.extend(d_.tolist())
+                all_tri_i.extend(tri_i.tolist())
+                all_ray_i.extend(ray_i.tolist())
+
+        # Loop every intersection candidates to find the minimal distance and corresponding triangle index
+        v2_d = np.ones(len(self.ray_orig))
+        v2_i = [0] * len(self.ray_orig)
+        for i in range(len(all_d)):
+            d = all_d[i]
+            tri_i = all_tri_i[i]
+            ray_i = all_ray_i[i]
+
+            if v2_d[ray_i] > d:
+                v2_d[ray_i] = d
+                v2_i[ray_i] = tri_i
+
+        v2_p = self.ray_origins + np.expand_dims(v2_d, -1) * self.ray_directions
+
+        normals = mesh.face_normals[v2_i]
+
+        # Force all incident angles in range [0, pi/2]
+        # Also, if there is no intersection, we need to set the angle to pi/2
+        v2_a = self._angle(self.ray_directions, normals)
+        v2_a[v2_a > np.pi / 2] = np.pi - v2_a[v2_a > np.pi / 2]
+        v2_a[np.where(v2_d == 1)] = np.pi/2
+
+        v2_s = self._sin(v2_a)
+        v2_c = self._cos(v2_a)
+
+        v2_d, v2_a, v2_s, v2_c = self._reshape_v2(v2_d, v2_a, v2_s, v2_c)
+        return v2_d, v2_a, v2_s, v2_c, v2_p
+
+    def _v2repr_e2f(self, mesh):
+        """ A pure pytorch vectorized implementation from scratch by Tengyu.
+        The name e2f is from this CAD addon repo for blender 2.80, cause I first implemented it for blender:
+        https://github.com/blender/blender-addons/tree/master/mesh_tiny_cad
+
+        Implementation ref:
+            Line-Plane intersection: https://mathworld.wolfram.com/Line-PlaneIntersection.html
+            Point is in triangle: https://www.cnblogs.com/graphics/archive/2010/08/05/1793393.html
+        The logical is as follows:
+            1) Use point-normal form to calculate the intersection points of a plane and a ray
+            2) Keep only those intersection points that are in the triangle face
+            3) Keep only intersection points that is the closest to their corresponding ray origins
 
         Args:
             mesh: (Trimesh)
 
         Returns:
-
+            v2_d: v2 representation depth channel
+            v2_a: v2 representation incident angle channel
+            v2_s: v2 representation sine of incident angle channel
+            v2_c: v2 representation cosine of incident angle channel
         """
-        inter_points, index_ray, index_tri = self.trimesh_intersection(mesh)
+
+        def e2f(torch_edges, torch_faces):
+            """ Calculate the intersection point from the edge to the face
+
+            Args:
+                torch_edges (Tensor): a m x 2 x 3 array, m is the number of cameras, 2 is two points, 3 is xyz coords
+                torch_faces (Tensor): a n x 3 x 3 array, n is the number of faces, 3 is three points, 3 is xyz coords
+
+            Returns:
+
+            """
+            # Get all intersected points using point-normal form
+            # Reference, simple math for calculating the intersection of a plane and a line in a 3D space
+            p0 = torch.mean(torch_faces, dim=1)
+            e1 = torch_faces[:, 0, :] - torch_faces[:, 2, :]
+            e2 = torch_faces[:, 1, :] - torch_faces[:, 2, :]
+            n = torch.cross(e1, e2)
+            l0 = torch_edges[:, 0, :]  # To be used in the next stage
+            l = torch_edges[:, 1, :] - torch_edges[:, 0, :]
+
+            p0 = p0.repeat(len(l0), 1, 1).permute(1, 0, 2)
+            n = n.repeat(len(l0), 1, 1).permute(1, 0, 2)
+            p0_l0_n = torch.sum((p0 - l0) * n, dim=2)
+
+            # Calculate sin and cos
+            l_repeat = l.repeat(len(n), 1, 1)
+            # l_repeat_2norm = torch.norm(l_repeat, dim=2)  # all norm for my camera ray is 1
+            n_2norm = torch.norm(n, dim=2)
+            n_l_cross = torch.cross(n, l_repeat, dim=2)
+            n_l_cross_2norm = torch.norm(n_l_cross, dim=2)
+            n_l_dot = torch.sum(n * l_repeat, dim=2)
+            n_l_sin = n_l_cross_2norm / n_2norm
+            n_l_cos = n_l_dot / n_2norm
+
+            # Keep calculating the intersected points
+            l_n = torch.sum(l * n, dim=2)  # To be used in the next stage
+
+            d = p0_l0_n / l_n
+            d = torch.stack((d, d, d), dim=2)
+
+            ip = d * l + l0  # Intersected points. To be used in the next stage
+            bp = torch.ones(d.shape, dtype=d.dtype, device=d.device) * l + l0  # Boundary points.
+
+            # Determine whether the intersected points is inside of the plane
+            a = torch_faces[:, 0, :].repeat(len(l0), 1, 1).permute(1, 0, 2)
+            b = torch_faces[:, 1, :].repeat(len(l0), 1, 1).permute(1, 0, 2)
+            c = torch_faces[:, 2, :].repeat(len(l0), 1, 1).permute(1, 0, 2)
+
+            v0 = c - a
+            v1 = b - a
+            v2 = ip - a
+
+            v00 = torch.sum(v0 * v0, dim=2)
+            v01 = torch.sum(v0 * v1, dim=2)
+            v02 = torch.sum(v0 * v2, dim=2)
+            v11 = torch.sum(v1 * v1, dim=2)
+            v12 = torch.sum(v1 * v2, dim=2)
+
+            denominator = v00 * v11 - v01 * v01
+            u = (v11 * v02 - v01 * v12) / denominator
+            v = (v00 * v12 - v01 * v02) / denominator
+
+            inface = (u + v) <= (1 + 1e-6)
+
+            inface[(u < (0 - 1e-6)) | (u > (1 + 1e-6))] = False
+            inface[(v < (0 - 1e-6)) | (v > (1 + 1e-6))] = False
+
+            ip2l0_d = torch.norm(ip - l0, dim=2)
+            ip2l0_d[~inface] = 1  # equals to the diameter of the sphere
+            ip2l0_d[l_n == 0] = 1  # equals to the diameter of the sphere
+
+            # Get minimum distance
+            ip2l0_d_min, ip2l0_d_argmin = torch.min(ip2l0_d, dim=0)
+
+            # Get the coords of the intersected points with minimum distance
+            ip2l0 = ip[ip2l0_d_argmin]
+            bp2l0 = bp[ip2l0_d_argmin]
+            ip2l0[~inface[ip2l0_d_argmin]] = bp2l0[~inface[ip2l0_d_argmin]]
+            ip2l0[(l_n == 0)[ip2l0_d_argmin]] = bp2l0[(l_n == 0)[ip2l0_d_argmin]]
+
+            n_l_sin = n_l_sin[ip2l0_d_argmin]
+            n_l_cos = n_l_cos[ip2l0_d_argmin]
+
+            ip2l0_diag = torch.diagonal(ip2l0, dim1=0, dim2=1).transpose(1, 0)
+            ip2l0_sin = torch.diagonal(n_l_sin)
+            ip2l0_cos = torch.diagonal(n_l_cos)
+
+            return ip2l0_diag, ip2l0_d_min, ip2l0_sin, ip2l0_cos
+
+        def e2f_stepped(ray_edges, mesh_triangles, face_interval, edge_interval):
+            """ GPU has very limited memory, so I have to split rays and triangles into small batches
+
+            Args:
+                ray_edges:
+                mesh_triangles:
+                face_interval (int): The interval per mini-batch to split triangles
+                edge_interval (int): The interval per mini-batch to split rays
+
+            Returns:
+
+            """
+            face_steps = int(np.ceil(mesh_triangles.size()[0] / face_interval))
+            edge_steps = int(np.ceil(ray_edges.size()[0] / edge_interval))
+            ip2l0_diag_all = torch.zeros(face_steps, ray_edges.size()[0], 3, device=DEVICE)
+            ip2l0_d_min_all = torch.zeros(face_steps, ray_edges.size()[0], device=DEVICE)
+            ip2l0_sin_all = torch.zeros(face_steps, ray_edges.size()[0], device=DEVICE)
+            ip2l0_cos_all = torch.zeros(face_steps, ray_edges.size()[0], device=DEVICE)
+
+            print('Total steps: %d' % face_steps)
+            for i in range(face_steps):
+                for j in range(edge_steps):
+                    ip2l0_diag, ip2l0_d_min, ip2l0_sin, ip2l0_cos = e2f(
+                        ray_edges[j * edge_interval: min((j + 1) * edge_interval, ray_edges.size()[0])],
+                        mesh_triangles[i * face_interval:(i + 1) * face_interval]
+                    )
+                    ip2l0_diag_all[i,
+                    j * edge_interval:min((j + 1) * edge_interval, ray_edges.size()[0])] = ip2l0_diag
+                    ip2l0_d_min_all[i,
+                    j * edge_interval:min((j + 1) * edge_interval, ray_edges.size()[0])] = ip2l0_d_min
+                    ip2l0_sin_all[i,
+                    j * edge_interval:min((j + 1) * edge_interval, ray_edges.size()[0])] = ip2l0_sin
+                    ip2l0_cos_all[i,
+                    j * edge_interval:min((j + 1) * edge_interval, ray_edges.size()[0])] = ip2l0_cos
+
+            ip2l0_d_min, ip2l0_d_argmin_all = torch.min(ip2l0_d_min_all, dim=0)
+            ip2l0_sin, _ = torch.min(ip2l0_sin_all, dim=0)
+            ip2l0_cos, _ = torch.min(ip2l0_cos_all, dim=0)
+
+            ip2l0_d_argmin_all = ip2l0_d_argmin_all.repeat(3, 1).transpose(0, 1).unsqueeze(0)
+            ip2l0_diag = ip2l0_diag_all.gather(0, ip2l0_d_argmin_all).squeeze()
+
+            return ip2l0_diag, ip2l0_d_min, ip2l0_sin, ip2l0_cos
+
+        ray_edges = torch.tensor(self.ray_edges).to(DEVICE)
+        mesh_triangles = torch.tensor(mesh.triangles).to(DEVICE)
+        face_interval = 16384
+        edge_interval = 512
+
+        v2_p, v2_d, v2_s, v2_c = e2f_stepped(ray_edges, mesh_triangles, face_interval, edge_interval)
+        v2_a = torch.acos(v2_c)
+
+        v2_d, v2_a, v2_s, v2_c = self._reshape_v2(v2_d, v2_a, v2_s, v2_c)
+        v2_d, v2_a, v2_s, v2_c, v2_p = self._torch2np(v2_d, v2_a, v2_s, v2_c, v2_p)
+
+        return v2_d, v2_a, v2_s, v2_c, v2_p
+
+    def _v2repr_trimesh(self, mesh):
+        """ Trimesh mesh to generate v2 representation using trimesh RayMeshIntersector class.
+        The slowest method to calculate ray triangle intersection.
+
+        Args:
+            mesh: (Trimesh)
+
+        Returns:
+            v2_d: v2 representation depth channel
+            v2_a: v2 representation incident angle channel
+            v2_s: v2 representation sine of incident angle channel
+            v2_c: v2 representation cosine of incident angle channel
+        """
+
+        intersector = RayMeshIntersector(mesh)
+        inter_points, index_ray, index_tri = intersector.intersects_location(
+            self.ray_origins, self.ray_directions, multiple_hits=False)
         normals = mesh.face_normals[index_tri]
         ray_directions = self.ray_directions[index_ray]
 
@@ -173,28 +472,21 @@ class V2Generator:
 
         d_ = np.linalg.norm(self.ray_origins[index_ray] - inter_points, axis=1)
         a_ = self._angle(ray_directions, normals)
-        a_[a_ > np.pi / 2] = np.pi - a_[a_ > np.pi / 2]
+        a_[a_ > np.pi / 2] = np.pi - a_[a_ > np.pi / 2]  # Force all incident angles in range [0, pi/2]
 
         v2_d[index_ray] = d_
         v2_a[index_ray] = a_
         v2_s = self._sin(v2_a)
         v2_c = self._cos(v2_a)
+        v2_p = inter_points
 
-        v2_d = v2_d.reshape((self.m, self.n))
-        v2_a = v2_a.reshape((self.m, self.n))
-        v2_s = v2_s.reshape((self.m, self.n))
-        v2_c = v2_c.reshape((self.m, self.n))
-        
-        return v2_d, v2_a, v2_s, v2_c 
-
-    def trimesh_intersection(self, mesh):
-        intersector = RayMeshIntersector(mesh)
-        return intersector.intersects_location(self.ray_origins, self.ray_directions, multiple_hits=False)
+        v2_d, v2_a, v2_s, v2_c = self._reshape_v2(v2_d, v2_a, v2_s, v2_c)
+        return v2_d, v2_a, v2_s, v2_c, v2_p
 
     def plt_v2_repr(self):
         fig, axes = plt.subplots(2, 3)
         reprs = [self.mesh_v2_d, self.mesh_v2_s, self.mesh_v2_c,
-                 self.convex_hull_v2_d, self.convex_hull_v2_s, self.convex_hull_v2_c]
+                 self.convh_v2_d, self.convh_v2_s, self.convh_v2_c]
         for i, ax in enumerate(axes.ravel()):
             ax.imshow(reprs[i], vmin=0, vmax=1, cmap='gray')
             ax.axis('off')
@@ -204,32 +496,45 @@ class V2Generator:
         plt.tight_layout()
         plt.show()
 
-    def plt_v2_config(self):
-        mesh_inter_points, _, _ = self.trimesh_intersection(self.mesh)
-        convex_hull_inter_points, _, _ = self.trimesh_intersection(self.convex_hull)
-
+    def plt_v2_config(self, convh=False):
         ax = Axes3D(plt.figure(figsize=(10, 10)))
         cube_d = 0.5
         ax.set_xlim(-cube_d, cube_d)
         ax.set_ylim(-cube_d, cube_d)
         ax.set_zlim(-cube_d, cube_d)
         ax.scatter(self.ray_origins[:, 0], self.ray_origins[:, 1], self.ray_origins[:, 2])
-        ax.scatter(mesh_inter_points[:, 0], mesh_inter_points[:, 1], mesh_inter_points[:, 2])
-        ax.scatter(convex_hull_inter_points[:, 0], convex_hull_inter_points[:, 1], convex_hull_inter_points[:, 2])
+        ax.scatter(self.mesh_v2_p[:, 0], self.mesh_v2_p[:, 1], self.mesh_v2_p[:, 2])
+        if convh:
+            ax.scatter(self.convh_v2_p[:, 0], self.convh_v2_p[:, 1], self.convh_v2_p[:, 2])
 
         plt.axis('off')
         plt.show()
 
+    def _reshape_v2(self, v2_d, v2_a, v2_s, v2_c):
+        v2_d = v2_d.reshape((self.m * self.h, self.n * self.w))
+        v2_a = v2_a.reshape((self.m * self.h, self.n * self.w))
+        v2_s = v2_s.reshape((self.m * self.h, self.n * self.w))
+        v2_c = v2_c.reshape((self.m * self.h, self.n * self.w))
+        return v2_d, v2_a, v2_s, v2_c
+
     def _angle(self, v1, v2):
         """ Returns the angle in radians between vectors v1 and v2
         """
-        v1_u = self.unit_vector(v1)
-        v2_u = self.unit_vector(v2)
+        v1_u = self._unit_vector(v1)
+        v2_u = self._unit_vector(v2)
         return np.arccos(np.clip(np.sum(v1_u * v2_u, axis=1), -1.0, 1.0))
 
     @staticmethod
-    def unit_vector(vector):
-        """ Returns the unit vector of the vector.  """
+    def _torch2np(*args):
+        return list(map(lambda x: x.cpu().numpy(), args))
+
+    @staticmethod
+    def _np2torch(*args):
+        return list(map(lambda x: torch.tensor(x).to(DEVICE), args))
+
+    @staticmethod
+    def _unit_vector(vector):
+        # Returns the unit vector of the vector
         return vector / np.linalg.norm(vector, axis=1, keepdims=True)
 
     @staticmethod
@@ -247,29 +552,48 @@ class V2Generator:
         return cos
 
 
+def modelnet40_objs():
+    categories = sorted(os.listdir(conf.ModelNet40OBJ_DIR))
+    objs = []
+    for ca in categories:
+        train_objs = sorted(glob.glob(conf.ModelNet40OBJ_DIR + '/{}/train/*.obj'.format(ca)))[:80]
+        test_objs = sorted(glob.glob(conf.ModelNet40OBJ_DIR + '/{}/test/*.obj'.format(ca)))[:20]
+        objs.extend(train_objs)
+        objs.extend(test_objs)
+
+    return objs
+
+
 def main():
-    objs = sorted(glob.glob(conf.ModelNet40OBJ_DIR + '/*/*/*.obj'))
-    obj_file = objs[0]
-    
     m = 32
     n = 32
-    w = 1
     h = 1
-    d = 1 / 32
+    w = 1
+    d = 1 / 128
     r = 0.5
     polar = False
     
     v2generator = V2Generator(m, n, w, h, d, r, polar)
-    v2generator.load_obj(obj_file)
+    objs = modelnet40_objs()
 
-    # v2generator.v2repr()
-    #
-    # v2generator.plt_v2_config()
-    # v2generator.plt_v2_repr()
+    import time
+    start = time.time()
 
-    v2generator.mesh.show()
-    v2generator.convex_hull.show()
+    for obj in objs[800: 820]:
+        v2generator.load_obj(obj)
+        v2generator.v2repr('mt')
+        v2generator.v2_to_npy('test.npy')
+
+        # Visualizations
+        # v2generator.plt_v2_config()
+        # v2generator.plt_v2_repr()
+        # v2generator.mesh.show()
+        # v2generator.convex_hull.show()
+
+        print(time.time() - start)
 
 
 if __name__ == '__main__':
+    import cProfile
     main()
+    # cProfile.run('main()', sort='tottime')
