@@ -153,11 +153,18 @@ class V2Generator:
 
         center = verts.mean(0)
         verts = verts - center
-        scale = np.max(np.abs(verts)) * 2 * np.sqrt(3) # Scale to fit a sphere of diameter 1
+        scale = np.max(np.abs(verts)) * 2 * np.sqrt(3)  # Scale to fit a sphere of diameter 1
         verts = verts / scale
 
         self.mesh = mesh = trimesh.Trimesh(vertices=verts, faces=faces)
-        self.convex_hull = convex_hull = self.mesh.convex_hull
+
+        # An object typically has 3 dimensions, length, width, and height,
+        # but some of them may only have 2, such as curtains, where one dimension will always equal to 0.
+        # In such case, we can't calculate the convex hull, thus we directly use the mesh itself as convex hull.
+        if np.any(np.all(verts == 0, axis=0)):
+            self.convex_hull = convex_hull = self.mesh
+        else:
+            self.convex_hull = convex_hull = self.mesh.convex_hull
         return mesh, convex_hull
 
     def v2_to_npy(self, dst):
@@ -579,7 +586,9 @@ def main():
     import time
     start = time.time()
 
+    last_i = 1136
     for i, obj in enumerate(objs):
+        obj = objs[last_i]
         v2generator.load_obj(obj)
         v2generator.v2repr('mt')
 
@@ -604,7 +613,7 @@ def main():
         print('{}/{}, {}/{}'.format((time.time() - start), (time.time() - start) / (i + 1) * len(objs),
                                     i + 1, len(objs)))
 
-
+        break
 if __name__ == '__main__':
     import cProfile
     main()
