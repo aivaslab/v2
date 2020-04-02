@@ -12,13 +12,14 @@ from trimesh.ray.ray_triangle import RayMeshIntersector
 from trimesh import creation
 from mpl_toolkits.mplot3d import Axes3D
 from v2.util import conf
+from v2.data.repr_s2cnn import ToMesh
 
 
 DEVICE = 'cuda'
 
 
 class V2Generator:
-    def __init__(self, m, n, w, h, d, r, polar):
+    def __init__(self, m, n, w, h, d, r, polar, ssm):
         self.m = m  # Rows in view (e.g. latitude lines)
         self.n = n  # Columns in view (e.g. longitude lines)
         self.h = h  # Height of each view, in pixels
@@ -26,7 +27,7 @@ class V2Generator:
         self.d = d  # The distance between two nearest view points
         self.r = r  # The radius of the ray sphere
         self.polar = polar  # Include the polar point or not
-        self.s_view = self.uv_sphere()
+        self.s_view = self.sphere_sample(ssm)  # sphere sampling method
         # self.s_view = self.trimesh_uv_sphere()
         self.ray_origins, self.ray_edges, self.ray_directions = self.get_rays()
         self.ray_orig, self.ray_dire = self._np2torch(self.ray_origins, self.ray_directions)  # Torch tensor
@@ -111,57 +112,42 @@ class V2Generator:
         ray_origins = all_view.T
         ray_edges = all_ray
         ray_directions = all_ray[:, 1, :] - all_ray[:, 0, :]
-        return ray_origins, ray_edges, ray_directions
+        return ray_origins, ray_edges, self._unit_vector(ray_directions)
 
-    def uv_sphere(self):
-        """ Generate points on a sphere based on the number of sampled points and the radius of the sphere.
-        Ref: http://corysimon.github.io/articles/uniformdistn-on-sphere/
+    def sphere_sample(self, method):
+        """ Various of sphere sampling methods to initialize the view center of V2
+
+        Args:
+            method: str
+                Spherical sampling method, could be:
+                uniform: http://corysimon.github.io/articles/uniformdistn-on-sphere/
+                s2cnn: the method used in the s2cnn paper, Driscoll-Healy grid, https://github.com/jonas-koehler/s2cnn
+                trimeshuv: uv sphere sampling from trimesh library
+                geodesic: ToDo
+        Returns:
+
         """
-
-        theta = np.linspace(0, 1, self.n, endpoint=False)
-        theta = 2 * np.pi * theta
-
-        if not self.polar:
-            phi = np.linspace(0, 1, self.m + 2)  # +2 because we will remove both polar points later
-            phi = phi[~np.logical_or(phi == 0, phi == 1)]
+        if method == 'uniform':
+            return self._uniform_sphere()
+        elif method == 's2cnn':
+            from v2.data.repr_s2cnn import make_sgrid
+            bandwidth = self.m // 2
+            return make_sgrid(bandwidth, alpha=0, beta=0, gamma=0).T
+        elif method == 'trimeshuv':
+            return self._trimesh_uv_sphere()
         else:
-            phi = np.linspace(0, 1, self.m)
-        phi = np.arccos(1 - 2 * phi)
-
-        theta, phi = np.meshgrid(theta, phi)
-        theta = theta.flatten()
-        phi = phi.flatten()
-
-        # When phi is 0 or pi, the point is on the z-axis, and therefore x, y should be zero
-        theta[np.logical_or(phi == 0, phi == np.pi)] = 0
-
-        x = self.r * self._sin(phi) * self._cos(theta)
-        y = self.r * self._sin(phi) * self._sin(theta)
-        z = self.r * self._cos(phi)
-        s_view = np.vstack((x, y, z))
-        return s_view
-
-    def trimesh_uv_sphere(self):
-        return np.array(creation.uv_sphere(radius=self.r, count=[self.m, (self.n + 1) // 2]).vertices).T
+            raise ValueError('Unsupported sphere sampling method {}'.format(method))
 
     def load_obj(self, obj_file):
         self.obj_file = obj_file
-
-        loaded_obj = trimesh.exchange.obj.load_obj(open(obj_file, 'r'))
-        verts = loaded_obj['vertices']
-        faces = loaded_obj['faces']
-
-        center = verts.mean(0)
-        verts = verts - center
-        scale = np.max(np.abs(verts)) * 2 * np.sqrt(3)  # Scale to fit a sphere of diameter 1
-        verts = verts / scale
-
-        self.mesh = mesh = trimesh.Trimesh(vertices=verts, faces=faces)
+        # self.mesh = mesh = ToMesh(random_rotations=True, random_translation=0.1)(obj_file)
+        self.mesh = mesh = ToMesh()(obj_file)
 
         # An object typically has 3 dimensions, length, width, and height,
-        # but some of them may only have 2, such as curtains, where one dimension will always equal to 0.
+        # but some of them may only have 2, such as curtains, where one dimension will very close to 0.
         # In such case, we can't calculate the convex hull, thus we directly use the mesh itself as convex hull.
-        if np.any(np.all(verts == 0, axis=0)):
+        if np.any(np.all(np.abs(self.mesh.vertices) < 1e-12, axis=0)):
+            print('=== Object is a 2d object. Directly use mesh as convex hull: {} ==='.format(self.obj_file))
             self.convex_hull = convex_hull = self.mesh
         else:
             self.convex_hull = convex_hull = self.mesh.convex_hull
@@ -178,15 +164,26 @@ class V2Generator:
             v2repr_core = self._v2repr_e2f
         elif method == 'mt':
             v2repr_core = self._v2repr_mt
+        elif method == 's2cnn':
+            v2repr_core = self._v2repr_s2cnn
+            self.v2 = v2repr_core(self.mesh)
+
+            self.mesh_v2_d = self.v2[0, :, :]
+            self.mesh_v2_c = self.v2[1, :, :]
+            self.mesh_v2_s = self.v2[2, :, :]
+            self.convh_v2_d = self.v2[3, :, :]
+            self.convh_v2_c = self.v2[4, :, :]
+            self.convh_v2_s = self.v2[5, :, :]
+            return
         else:
             raise ValueError('Unsupported V2 method: {}'.format(method))
 
-        self.mesh_v2_d, self.mesh_v2_a, self.mesh_v2_s, self.mesh_v2_c, self.mesh_v2_p = v2repr_core(convh=False)
-        self.convh_v2_d, self.convh_v2_a, self.convh_v2_s, self.convh_v2_c, self.convh_v2_p = v2repr_core(convh=True)
+        self.mesh_v2_d, self.mesh_v2_a, self.mesh_v2_s, self.mesh_v2_c, self.mesh_v2_p = v2repr_core(self.mesh)
+        self.convh_v2_d, self.convh_v2_a, self.convh_v2_s, self.convh_v2_c, self.convh_v2_p = v2repr_core(self.convex_hull)
         self.v2 = np.dstack([self.mesh_v2_d, self.mesh_v2_s, self.mesh_v2_c,
                              self.convh_v2_d, self.convh_v2_s, self.convh_v2_c])
 
-    def _v2repr_mt(self, convh):
+    def _v2repr_mt(self, mesh):
         """ Möller–Trumbore intersection algorithm
         Ref: https://en.wikipedia.org/wiki/M%C3%B6ller%E2%80%93Trumbore_intersection_algorithm
         Ref: https://github.com/johnnovak/raytriangle-test
@@ -208,18 +205,13 @@ class V2Generator:
             # No intersection conditions
             # If determinant is near zero, ray lies in plane of triangle
             # Test triangle bounds by u, v
-            intersected = ~((det < 0.000001) | (u < 0) | (u > 1) | (v < 0) | (u + v > 1))
+            intersected = ~((det < 1e-12) | (u < 0) | (u > 1) | (v < 0) | (u + v > 1))
 
             mt_d = torch.sum(v0v2 * qvec, dim=2) * inv_det  # Ray travelling distance from every ray to every triangle
             mt_d = mt_d[intersected]
 
             mt_tri_i, mt_ray_i = torch.where(intersected)
             return mt_d, mt_tri_i, mt_ray_i
-
-        if convh:
-            mesh = self.convex_hull
-        else:
-            mesh = self.mesh
 
         triangles = torch.tensor(mesh.triangles).to(DEVICE)
 
@@ -259,7 +251,7 @@ class V2Generator:
                 all_ray_i.extend(ray_i.tolist())
 
         # Loop every intersection candidates to find the minimal distance and corresponding triangle index
-        v2_d = np.ones(len(self.ray_orig))
+        v2_d = np.full(len(self.ray_origins), 2 * self.r, dtype=np.float32)
         v2_i = [0] * len(self.ray_orig)
         for i in range(len(all_d)):
             d = all_d[i]
@@ -308,138 +300,7 @@ class V2Generator:
             v2_s: v2 representation sine of incident angle channel
             v2_c: v2 representation cosine of incident angle channel
         """
-
-        def e2f(torch_edges, torch_faces):
-            """ Calculate the intersection point from the edge to the face
-
-            Args:
-                torch_edges (Tensor): a m x 2 x 3 array, m is the number of cameras, 2 is two points, 3 is xyz coords
-                torch_faces (Tensor): a n x 3 x 3 array, n is the number of faces, 3 is three points, 3 is xyz coords
-
-            Returns:
-
-            """
-            # Get all intersected points using point-normal form
-            # Reference, simple math for calculating the intersection of a plane and a line in a 3D space
-            p0 = torch.mean(torch_faces, dim=1)
-            e1 = torch_faces[:, 0, :] - torch_faces[:, 2, :]
-            e2 = torch_faces[:, 1, :] - torch_faces[:, 2, :]
-            n = torch.cross(e1, e2)
-            l0 = torch_edges[:, 0, :]  # To be used in the next stage
-            l = torch_edges[:, 1, :] - torch_edges[:, 0, :]
-
-            p0 = p0.repeat(len(l0), 1, 1).permute(1, 0, 2)
-            n = n.repeat(len(l0), 1, 1).permute(1, 0, 2)
-            p0_l0_n = torch.sum((p0 - l0) * n, dim=2)
-
-            # Calculate sin and cos
-            l_repeat = l.repeat(len(n), 1, 1)
-            # l_repeat_2norm = torch.norm(l_repeat, dim=2)  # all norm for my camera ray is 1
-            n_2norm = torch.norm(n, dim=2)
-            n_l_cross = torch.cross(n, l_repeat, dim=2)
-            n_l_cross_2norm = torch.norm(n_l_cross, dim=2)
-            n_l_dot = torch.sum(n * l_repeat, dim=2)
-            n_l_sin = n_l_cross_2norm / n_2norm
-            n_l_cos = n_l_dot / n_2norm
-
-            # Keep calculating the intersected points
-            l_n = torch.sum(l * n, dim=2)  # To be used in the next stage
-
-            d = p0_l0_n / l_n
-            d = torch.stack((d, d, d), dim=2)
-
-            ip = d * l + l0  # Intersected points. To be used in the next stage
-            bp = torch.ones(d.shape, dtype=d.dtype, device=d.device) * l + l0  # Boundary points.
-
-            # Determine whether the intersected points is inside of the plane
-            a = torch_faces[:, 0, :].repeat(len(l0), 1, 1).permute(1, 0, 2)
-            b = torch_faces[:, 1, :].repeat(len(l0), 1, 1).permute(1, 0, 2)
-            c = torch_faces[:, 2, :].repeat(len(l0), 1, 1).permute(1, 0, 2)
-
-            v0 = c - a
-            v1 = b - a
-            v2 = ip - a
-
-            v00 = torch.sum(v0 * v0, dim=2)
-            v01 = torch.sum(v0 * v1, dim=2)
-            v02 = torch.sum(v0 * v2, dim=2)
-            v11 = torch.sum(v1 * v1, dim=2)
-            v12 = torch.sum(v1 * v2, dim=2)
-
-            denominator = v00 * v11 - v01 * v01
-            u = (v11 * v02 - v01 * v12) / denominator
-            v = (v00 * v12 - v01 * v02) / denominator
-
-            inface = (u + v) <= (1 + 1e-6)
-
-            inface[(u < (0 - 1e-6)) | (u > (1 + 1e-6))] = False
-            inface[(v < (0 - 1e-6)) | (v > (1 + 1e-6))] = False
-
-            ip2l0_d = torch.norm(ip - l0, dim=2)
-            ip2l0_d[~inface] = 1  # equals to the diameter of the sphere
-            ip2l0_d[l_n == 0] = 1  # equals to the diameter of the sphere
-
-            # Get minimum distance
-            ip2l0_d_min, ip2l0_d_argmin = torch.min(ip2l0_d, dim=0)
-
-            # Get the coords of the intersected points with minimum distance
-            ip2l0 = ip[ip2l0_d_argmin]
-            bp2l0 = bp[ip2l0_d_argmin]
-            ip2l0[~inface[ip2l0_d_argmin]] = bp2l0[~inface[ip2l0_d_argmin]]
-            ip2l0[(l_n == 0)[ip2l0_d_argmin]] = bp2l0[(l_n == 0)[ip2l0_d_argmin]]
-
-            n_l_sin = n_l_sin[ip2l0_d_argmin]
-            n_l_cos = n_l_cos[ip2l0_d_argmin]
-
-            ip2l0_diag = torch.diagonal(ip2l0, dim1=0, dim2=1).transpose(1, 0)
-            ip2l0_sin = torch.diagonal(n_l_sin)
-            ip2l0_cos = torch.diagonal(n_l_cos)
-
-            return ip2l0_diag, ip2l0_d_min, ip2l0_sin, ip2l0_cos
-
-        def e2f_stepped(ray_edges, mesh_triangles, face_interval, edge_interval):
-            """ GPU has very limited memory, so I have to split rays and triangles into small batches
-
-            Args:
-                ray_edges:
-                mesh_triangles:
-                face_interval (int): The interval per mini-batch to split triangles
-                edge_interval (int): The interval per mini-batch to split rays
-
-            Returns:
-
-            """
-            face_steps = int(np.ceil(mesh_triangles.size()[0] / face_interval))
-            edge_steps = int(np.ceil(ray_edges.size()[0] / edge_interval))
-            ip2l0_diag_all = torch.zeros(face_steps, ray_edges.size()[0], 3, device=DEVICE)
-            ip2l0_d_min_all = torch.zeros(face_steps, ray_edges.size()[0], device=DEVICE)
-            ip2l0_sin_all = torch.zeros(face_steps, ray_edges.size()[0], device=DEVICE)
-            ip2l0_cos_all = torch.zeros(face_steps, ray_edges.size()[0], device=DEVICE)
-
-            print('Total steps: %d' % face_steps)
-            for i in range(face_steps):
-                for j in range(edge_steps):
-                    ip2l0_diag, ip2l0_d_min, ip2l0_sin, ip2l0_cos = e2f(
-                        ray_edges[j * edge_interval: min((j + 1) * edge_interval, ray_edges.size()[0])],
-                        mesh_triangles[i * face_interval:(i + 1) * face_interval]
-                    )
-                    ip2l0_diag_all[i,
-                    j * edge_interval:min((j + 1) * edge_interval, ray_edges.size()[0])] = ip2l0_diag
-                    ip2l0_d_min_all[i,
-                    j * edge_interval:min((j + 1) * edge_interval, ray_edges.size()[0])] = ip2l0_d_min
-                    ip2l0_sin_all[i,
-                    j * edge_interval:min((j + 1) * edge_interval, ray_edges.size()[0])] = ip2l0_sin
-                    ip2l0_cos_all[i,
-                    j * edge_interval:min((j + 1) * edge_interval, ray_edges.size()[0])] = ip2l0_cos
-
-            ip2l0_d_min, ip2l0_d_argmin_all = torch.min(ip2l0_d_min_all, dim=0)
-            ip2l0_sin, _ = torch.min(ip2l0_sin_all, dim=0)
-            ip2l0_cos, _ = torch.min(ip2l0_cos_all, dim=0)
-
-            ip2l0_d_argmin_all = ip2l0_d_argmin_all.repeat(3, 1).transpose(0, 1).unsqueeze(0)
-            ip2l0_diag = ip2l0_diag_all.gather(0, ip2l0_d_argmin_all).squeeze()
-
-            return ip2l0_diag, ip2l0_d_min, ip2l0_sin, ip2l0_cos
+        from v2.data.repr_e2f import e2f_stepped
 
         ray_edges = torch.tensor(self.ray_edges).to(DEVICE)
         mesh_triangles = torch.tensor(mesh.triangles).to(DEVICE)
@@ -474,7 +335,7 @@ class V2Generator:
         normals = mesh.face_normals[index_tri]
         ray_directions = self.ray_directions[index_ray]
 
-        v2_d = np.full(len(self.ray_origins), 1.0)
+        v2_d = np.full(len(self.ray_origins), 2 * self.r, dtype=np.float32)
         v2_a = np.zeros(len(self.ray_origins))
 
         d_ = np.linalg.norm(self.ray_origins[index_ray] - inter_points, axis=1)
@@ -490,12 +351,22 @@ class V2Generator:
         v2_d, v2_a, v2_s, v2_c = self._reshape_v2(v2_d, v2_a, v2_s, v2_c)
         return v2_d, v2_a, v2_s, v2_c, v2_p
 
+    def _v2repr_s2cnn(self, mesh):
+        from v2.data.repr_s2cnn import ToMesh, ProjectOnSphere
+        v2 = ProjectOnSphere(bandwidth=16)(mesh)
+        return v2
+
     def plt_v2_repr(self):
         fig, axes = plt.subplots(2, 3)
         reprs = [self.mesh_v2_d, self.mesh_v2_s, self.mesh_v2_c,
                  self.convh_v2_d, self.convh_v2_s, self.convh_v2_c]
+        for repr in reprs:
+            print(repr.min(), repr.max())
         for i, ax in enumerate(axes.ravel()):
-            ax.imshow(reprs[i], vmin=0, vmax=1, cmap='gray')
+            if i == 0 or i == 3:  # Depth channel
+                ax.imshow(reprs[i], vmin=0, vmax=2 * self.r, cmap='gray')
+            else:  # Sine, Cosine channel
+                ax.imshow(reprs[i], vmin=0, vmax=1, cmap='gray')
             ax.axis('off')
             ax.set_xticklabels([])
             ax.set_yticklabels([])
@@ -505,7 +376,7 @@ class V2Generator:
 
     def plt_v2_config(self, convh=False):
         ax = Axes3D(plt.figure(figsize=(10, 10)))
-        cube_d = 0.5
+        cube_d = self.r
         ax.set_xlim(-cube_d, cube_d)
         ax.set_ylim(-cube_d, cube_d)
         ax.set_zlim(-cube_d, cube_d)
@@ -516,6 +387,37 @@ class V2Generator:
 
         plt.axis('off')
         plt.show()
+
+    def _uniform_sphere(self):
+        """ Generate points on a sphere based on the number of sampled points and the radius of the sphere.
+        Ref: http://corysimon.github.io/articles/uniformdistn-on-sphere/
+        """
+
+        theta = np.linspace(0, 1, self.n, endpoint=False)
+        theta = 2 * np.pi * theta
+
+        if not self.polar:
+            phi = np.linspace(0, 1, self.m + 2)  # +2 because we will remove both polar points later
+            phi = phi[~np.logical_or(phi == 0, phi == 1)]
+        else:
+            phi = np.linspace(0, 1, self.m)
+        phi = np.arccos(1 - 2 * phi)
+
+        theta, phi = np.meshgrid(theta, phi)
+        theta = theta.flatten()
+        phi = phi.flatten()
+
+        # When phi is 0 or pi, the point is on the z-axis, and therefore x, y should be zero
+        theta[np.logical_or(phi == 0, phi == np.pi)] = 0
+
+        x = self.r * self._sin(phi) * self._cos(theta)
+        y = self.r * self._sin(phi) * self._sin(theta)
+        z = self.r * self._cos(phi)
+        s_view = np.vstack((x, y, z))
+        return s_view
+
+    def _trimesh_uv_sphere(self):
+        return np.array(creation.uv_sphere(radius=self.r, count=[self.m, (self.n + 1) // 2]).vertices).T
 
     def _reshape_v2(self, v2_d, v2_a, v2_s, v2_c):
         v2_d = v2_d.reshape((self.m * self.h, self.n * self.w))
@@ -572,48 +474,52 @@ def modelnet40_objs():
 
 
 def main():
-    m = 128
-    n = 128
+    m = 32
+    n = 32
     h = 1
     w = 1
     d = 1 / 128
-    r = 0.5
+    r = 1
     polar = False
+    ssm = 'uniform'  # sphere sampling method
     
-    v2generator = V2Generator(m, n, w, h, d, r, polar)
+    v2generator = V2Generator(m, n, w, h, d, r, polar, ssm)
     objs = modelnet40_objs()
 
     import time
     start = time.time()
 
-    last_i = 1136
-    for i, obj in enumerate(objs):
-        obj = objs[last_i]
+    last_i = 2412
+    for i, obj in enumerate(objs[last_i:]):
+        obj = objs[0]
         v2generator.load_obj(obj)
-        v2generator.v2repr('mt')
+        method = 'mt'
+        v2generator.v2repr(method)
 
         dst = obj.replace(conf.ModelNet40OBJ_DIR, conf.ModelNet40_MDSC_CDSC_C16384)
         dir_ = os.path.dirname(dst)
-        ca_, id_ = os.path.splitext(os.path.basename(dst))[0].split('_')
-        v2_config = '{}_{}_{}_{}_{:.4f}.npy'.format(m, n, h, w, d)
+        fname = os.path.splitext(os.path.basename(dst))[0].split('_')
+        # In some cases the category name contains '_' such as flower_pot_0001.obj
+        ca_, id_ = '_'.join(fname[:-1]), fname[-1]
+        v2_config = '{}_{}_{}_{}_{}_{:.4f}.npy'.format(method, m, n, h, w, d)
 
-        dst = os.path.join(dir_, ca_, id_, v2_config)
+        dst = os.path.join(dir_, id_, v2_config)
         dir_ = os.path.dirname(dst)
         if not os.path.exists(dir_):
             os.makedirs(dir_)
 
-        v2generator.v2_to_npy(dst)
+        # v2generator.v2_to_npy(dst)
 
         # Visualizations
         # v2generator.plt_v2_config()
         # v2generator.plt_v2_repr()
         # v2generator.mesh.show()
         # v2generator.convex_hull.show()
-
-        print('{}/{}, {}/{}'.format((time.time() - start), (time.time() - start) / (i + 1) * len(objs),
-                                    i + 1, len(objs)))
-
+        print('{}/{}, {}/{}'.format((time.time() - start), (time.time() - start) / (i + 1) * (len(objs) - last_i),
+                                    i + 1, (len(objs) - last_i)))
         break
+
+
 if __name__ == '__main__':
     import cProfile
     main()

@@ -70,8 +70,8 @@ def linspace_sphere(u, v, r, polar=True):
     x = r * np_sin(phi) * np.cos(theta)
     y = r * np_sin(phi) * np_sin(theta)
     z = r * np.cos(phi)
-    coords_xyz = np.vstack((x, y, z))
-    return coords_xyz
+    ray_origins = np.vstack((x, y, z))
+    return ray_origins
 
 
 def get_cams(s_col, s_row, p_col, p_row, d, polar=True):
@@ -171,7 +171,6 @@ def e2f(torch_edges, torch_faces):
     l_repeat = l.repeat(len(n), 1, 1)
     # l_repeat_2norm = torch.norm(l_repeat, dim=2)  # all norm for my camera ray is 1
     n_2norm = torch.norm(n, dim=2)
-    # n_2norm_cross = n_2norm.repeat((3, 1, 1)).permute(1, 2, 0)
     n_l_cross = torch.cross(n, l_repeat, dim=2)
     n_l_cross_2norm = torch.norm(n_l_cross, dim=2)
     n_l_dot = torch.sum(n * l_repeat, dim=2)
@@ -185,10 +184,9 @@ def e2f(torch_edges, torch_faces):
     d = torch.stack((d, d, d), dim=2)
 
     ip = d * l + l0  # Intersected points. To be used in the next stage
-    bp = torch.ones(d.shape, dtype=d.dtype, device=d.device) * l + l0  # Boundary points. To be used in the next stage
+    bp = torch.ones(d.shape, dtype=d.dtype, device=d.device) * l + l0  # Boundary points.
 
     # Determine whether the intersected points is inside of the plane
-    # Reference, https://www.cnblogs.com/graphics/archive/2010/08/05/1793393.html#!comments
     a = torch_faces[:, 0, :].repeat(len(l0), 1, 1).permute(1, 0, 2)
     b = torch_faces[:, 1, :].repeat(len(l0), 1, 1).permute(1, 0, 2)
     c = torch_faces[:, 2, :].repeat(len(l0), 1, 1).permute(1, 0, 2)
@@ -218,7 +216,6 @@ def e2f(torch_edges, torch_faces):
 
     # Get minimum distance
     ip2l0_d_min, ip2l0_d_argmin = torch.min(ip2l0_d, dim=0)
-    # ip2l0_d_argmin = torch.argmin(ip2l0_d, dim=0)
 
     # Get the coords of the intersected points with minimum distance
     ip2l0 = ip[ip2l0_d_argmin]
@@ -236,38 +233,40 @@ def e2f(torch_edges, torch_faces):
     return ip2l0_diag, ip2l0_d_min, ip2l0_sin, ip2l0_cos
 
 
-def e2f_stepped(torch_cams_edges, torch_faces_xyz, face_interval, edge_interval):
-    """To save memory, I have to split the itorchut face array to several steps
+def e2f_stepped(ray_edges, mesh_triangles, face_interval, edge_interval):
+    """ GPU has very limited memory, so I have to split rays and triangles into small batches
 
     Args:
-        torch_cams_edges:
-        torch_faces_xyz:
-        face_interval (int): The interval per mini-batch to split faces
-        edge_interval (int): The interval per mini-batch to split edges
+        ray_edges:
+        mesh_triangles:
+        face_interval (int): The interval per mini-batch to split triangles
+        edge_interval (int): The interval per mini-batch to split rays
 
     Returns:
 
     """
-    face_steps = int(np.ceil(torch_faces_xyz.size()[0] / face_interval))
-    edge_steps = int(np.ceil(torch_cams_edges.size()[0] / edge_interval))
-    ip2l0_diag_all = torch.zeros(face_steps, torch_cams_edges.size()[0], 3, device=DEVICE)
-    ip2l0_d_min_all = torch.zeros(face_steps, torch_cams_edges.size()[0], device=DEVICE)
-    ip2l0_sin_all = torch.zeros(face_steps, torch_cams_edges.size()[0], device=DEVICE)
-    ip2l0_cos_all = torch.zeros(face_steps, torch_cams_edges.size()[0], device=DEVICE)
+    face_steps = int(np.ceil(mesh_triangles.size()[0] / face_interval))
+    edge_steps = int(np.ceil(ray_edges.size()[0] / edge_interval))
+    ip2l0_diag_all = torch.zeros(face_steps, ray_edges.size()[0], 3, device=DEVICE)
+    ip2l0_d_min_all = torch.zeros(face_steps, ray_edges.size()[0], device=DEVICE)
+    ip2l0_sin_all = torch.zeros(face_steps, ray_edges.size()[0], device=DEVICE)
+    ip2l0_cos_all = torch.zeros(face_steps, ray_edges.size()[0], device=DEVICE)
 
     print('Total steps: %d' % face_steps)
     for i in range(face_steps):
-        # print(i)
         for j in range(edge_steps):
-            # print(j)
             ip2l0_diag, ip2l0_d_min, ip2l0_sin, ip2l0_cos = e2f(
-                torch_cams_edges[j * edge_interval: min((j + 1) * edge_interval, torch_cams_edges.size()[0])],
-                torch_faces_xyz[i * face_interval:(i + 1) * face_interval]
+                ray_edges[j * edge_interval: min((j + 1) * edge_interval, ray_edges.size()[0])],
+                mesh_triangles[i * face_interval:(i + 1) * face_interval]
             )
-            ip2l0_diag_all[i, j * edge_interval:min((j + 1) * edge_interval, torch_cams_edges.size()[0])] = ip2l0_diag
-            ip2l0_d_min_all[i, j * edge_interval:min((j + 1) * edge_interval, torch_cams_edges.size()[0])] = ip2l0_d_min
-            ip2l0_sin_all[i, j * edge_interval:min((j + 1) * edge_interval, torch_cams_edges.size()[0])] = ip2l0_sin
-            ip2l0_cos_all[i, j * edge_interval:min((j + 1) * edge_interval, torch_cams_edges.size()[0])] = ip2l0_cos
+            ip2l0_diag_all[i,
+            j * edge_interval:min((j + 1) * edge_interval, ray_edges.size()[0])] = ip2l0_diag
+            ip2l0_d_min_all[i,
+            j * edge_interval:min((j + 1) * edge_interval, ray_edges.size()[0])] = ip2l0_d_min
+            ip2l0_sin_all[i,
+            j * edge_interval:min((j + 1) * edge_interval, ray_edges.size()[0])] = ip2l0_sin
+            ip2l0_cos_all[i,
+            j * edge_interval:min((j + 1) * edge_interval, ray_edges.size()[0])] = ip2l0_cos
 
     ip2l0_d_min, ip2l0_d_argmin_all = torch.min(ip2l0_d_min_all, dim=0)
     ip2l0_sin, _ = torch.min(ip2l0_sin_all, dim=0)
@@ -324,10 +323,10 @@ def generate_v2():
         p_row = fc
         d = 1 / side
 
-        s_col = 1
-        s_row = 1 + 2
-        p_col = 400
-        p_row = 100
+        s_col = 32
+        s_row = 32 + 2
+        p_col = 1
+        p_row = 1
         d = 1 / side
 
         cam_settings = '%d_%d_%d_%d_%.4f' % (s_col, s_row - 2, p_col, p_row, d)

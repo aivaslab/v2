@@ -38,6 +38,7 @@ class V2(Dataset):
         # x = np.expand_dims(x, axis=-1)
         if self.transform:
             x = self.transform(x)
+            x = x.to(torch.float)
 
         y = self.labels[index]
         return x, y
@@ -58,21 +59,15 @@ class V2Loader:
 
 
 def main():
-    # c10000
-    cam_settings1 = ['4_1_50_50_0.02', '8_2_25_25_0.02', '20_5_10_10_0.02', '40_10_5_5_0.02', '100_25_2_2_0.02', '200_50_1_1_0.02']
+    data_root = conf.ModelNet40_MDSC_CDSC_C16384
+    m = 128
+    n = 128
+    h = 1
+    w = 1
+    d = 1 / 128
+    v2_config = '{}_{}_{}_{}_{:.4f}.npy'.format(m, n, h, w, d)
 
-    # c22500
-    cam_settings2 = ['4_1_75_75_0.01', '12_3_25_25_0.01', '20_5_15_15_0.01', '60_15_5_5_0.01', '100_25_3_3_0.01', '300_75_1_1_0.01']
-
-    # c40000
-    cam_settings3 = ['4_1_100_100_0.01', '8_2_50_50_0.01', '16_4_25_25_0.01', '20_5_20_20_0.01',
-                     '40_10_10_10_0.01', '80_20_5_5_0.01', '100_25_4_4_0.01', '200_50_2_2_0.01', '400_100_1_1_0.01']
-
-    cams = cam_settings1 + cam_settings2 + cam_settings3
-
-    for cam in cams:
-        v2loader = V2Loader(ModelNet40Hyper(cam))
-
+    v2loader = V2Loader(ModelNet40Hyper(data_root, v2_config))
 
 
 if __name__ == '__main__':
