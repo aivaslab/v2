@@ -2,7 +2,7 @@ import os
 import torch
 import glob
 import matplotlib
-matplotlib.use('TKAGG')
+# matplotlib.use('TKAGG')
 import matplotlib.pyplot as plt
 import pickle
 import numpy as np
@@ -565,8 +565,8 @@ def modelnet40_objs():
 
 
 def main():
-    m = 32
-    n = 32
+    m = 128
+    n = 128
     h = 1
     w = 1
     d = 1 / 128
@@ -579,10 +579,21 @@ def main():
     import time
     start = time.time()
 
-    for obj in objs[800: 820]:
+    for i, obj in enumerate(objs):
         v2generator.load_obj(obj)
         v2generator.v2repr('mt')
-        v2generator.v2_to_npy('test.npy')
+
+        dst = obj.replace(conf.ModelNet40OBJ_DIR, conf.ModelNet40_MDSC_CDSC_C16384)
+        dir_ = os.path.dirname(dst)
+        ca_, id_ = os.path.splitext(os.path.basename(dst))[0].split('_')
+        v2_config = '{}_{}_{}_{}_{:.4f}.npy'.format(m, n, h, w, d)
+
+        dst = os.path.join(dir_, ca_, id_, v2_config)
+        dir_ = os.path.dirname(dst)
+        if not os.path.exists(dir_):
+            os.makedirs(dir_)
+
+        v2generator.v2_to_npy(dst)
 
         # Visualizations
         # v2generator.plt_v2_config()
@@ -590,7 +601,8 @@ def main():
         # v2generator.mesh.show()
         # v2generator.convex_hull.show()
 
-        print(time.time() - start)
+        print('{}/{}, {}/{}'.format((time.time() - start), (time.time() - start) / (i + 1) * len(objs),
+                                    i + 1, len(objs)))
 
 
 if __name__ == '__main__':
