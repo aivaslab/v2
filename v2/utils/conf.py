@@ -5,8 +5,10 @@ MEDIA_DATA_DIR = '/media/tengyu/DataU'
 DATA_DIR = os.path.join(MEDIA_DATA_DIR, 'Data')
 PJ_ROOT = '/home/tengyu/Documents/research/v2/v2'
 
-CKPT_DIR = os.path.join(PJ_ROOT, 'exp', 'ckpt')
-RST_DIR = os.path.join(PJ_ROOT, 'exp', 'rst')
+EXP_DIR = os.path.join(PJ_ROOT, 'exp')
+PROJ_DATA_DIR = os.path.join(PJ_ROOT, 'data')
+CKPT_DIR = os.path.join(EXP_DIR, 'ckpt')
+RST_DIR = os.path.join(EXP_DIR, 'rst')
 
 ModelNet_DIR = os.path.join(DATA_DIR, 'ModelNet')
 ModelNet40_DIR = os.path.join(ModelNet_DIR, 'ModelNet40')

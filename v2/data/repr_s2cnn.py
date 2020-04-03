@@ -12,15 +12,15 @@ import logging
 logging.getLogger('pyembree').disabled = True
 
 
-def rotmat(a, b, c, hom_coord=False):  # apply to mesh using mesh.apply_transform(rotmat(a,b,c, True))
+def rotmat(z_, y_, x_, hom_coord=False):  # apply to mesh using mesh.apply_transform(rotmat(a,b,c, True))
     """
     Create a rotation matrix with an optional fourth homogeneous coordinate
 
-    :param a, b, c: ZYZ-Euler angles
+    :param a, b, c: ZYX-Euler angles
     """
     def z(a):
-        return np.array([[np.cos(a), np.sin(a), 0, 0],
-                         [-np.sin(a), np.cos(a), 0, 0],
+        return np.array([[np.cos(a), -np.sin(a), 0, 0],
+                         [np.sin(a), np.cos(a), 0, 0],
                          [0, 0, 1, 0],
                          [0, 0, 0, 1]])
 
@@ -30,17 +30,23 @@ def rotmat(a, b, c, hom_coord=False):  # apply to mesh using mesh.apply_transfor
                          [-np.sin(a), 0, np.cos(a), 0],
                          [0, 0, 0, 1]])
 
-    r = z(a).dot(y(b)).dot(z(c))  # pylint: disable=E1101
+    def x(a):
+        return np.array([[1, 0, 0, 0],
+                         [0, np.cos(a), -np.sin(a), 0],
+                         [0, np.sin(a), np.cos(a), 0],
+                         [0, 0, 0, 1]])
+
+    r = z(z_).dot(y(y_)).dot(x(x_))  # pylint: disable=E1101
     if hom_coord:
         return r
     else:
         return r[:3, :3]
 
 
-def make_sgrid(b, alpha, beta, gamma):
+def make_sgrid(b, alpha, beta, gamma, grid_type):
     from lie_learn.spaces import S2
 
-    theta, phi = S2.meshgrid(b=b, grid_type='SOFT')
+    theta, phi = S2.meshgrid(b=b, grid_type=grid_type)
     sgrid = S2.change_coordinates(np.c_[theta[..., None], phi[..., None]], p_from='S', p_to='C')
     sgrid = sgrid.reshape((-1, 3))
 
@@ -103,9 +109,16 @@ def rnd_rot():
     return rot
 
 
+def fix_rot(rot_zyx):
+    z, y, x = rot_zyx
+    rot = rotmat(z, y, x, True)
+    return rot
+
+
 class ToMesh:
-    def __init__(self, random_rotations=False, random_translation=0):
-        self.rot = random_rotations
+    def __init__(self, random_rotations, fix_rotations, random_translation):
+        self.rrot = random_rotations
+        self.frot = fix_rotations
         self.tr = random_translation
 
     def __call__(self, path):
@@ -128,10 +141,12 @@ class ToMesh:
             mesh.apply_transform(rot)
             mesh.apply_translation([tr, 0, 0])
 
-            if not self.rot:
+            if not self.rrot:
                 mesh.apply_transform(rot.T)
 
-        if self.rot:
+        if self.frot != [0, 0, 0]:
+            mesh.apply_transform(fix_rot(self.frot))
+        elif self.rrot:
             mesh.apply_transform(rnd_rot())
 
         r = np.max(np.linalg.norm(mesh.vertices, axis=-1))
@@ -140,30 +155,16 @@ class ToMesh:
         return mesh
 
     def __repr__(self):
-        return self.__class__.__name__ + '(rotation={0}, translation={1})'.format(self.rot, self.tr)
+        return self.__class__.__name__ + '(rand_rotation={0}, fix_rotation={1}, translation={2})'.format(self.rrot, self.frot, self.tr)
 
 
 class ProjectOnSphere:
     def __init__(self, bandwidth):
         self.bandwidth = bandwidth
-        self.sgrid = make_sgrid(bandwidth, alpha=0, beta=0, gamma=0)
+        self.sgrid = make_sgrid(bandwidth, alpha=0, beta=0, gamma=0, grid_type='SOFT')
 
     def __call__(self, mesh):
         im = render_model(mesh, self.sgrid)
-        im = im.reshape(3, 2 * self.bandwidth, 2 * self.bandwidth)
-
-        from scipy.spatial.qhull import QhullError  # pylint: disable=E0611
-        try:
-            convex_hull = mesh.convex_hull
-        except QhullError:
-            convex_hull = mesh
-
-        hull_im = render_model(convex_hull, self.sgrid)
-        hull_im = hull_im.reshape(3, 2 * self.bandwidth, 2 * self.bandwidth)
-
-        im = np.concatenate([im, hull_im], axis=0)
-        assert len(im) == 6
-        im = im.astype(np.float32)  # pylint: disable=E1101
         return im
 
     def __repr__(self):

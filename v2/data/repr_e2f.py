@@ -9,7 +9,7 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 
-from v2.util import conf
+from v2.utils import conf
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
