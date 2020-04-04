@@ -380,11 +380,11 @@ class V2Lib:
            normal towards the object, finally reaching the object (or missing it, becoming a “background” pixel).
 
         Returns:
-            ray_origins: ndarray, (m*n*x*y, 3)
+            ray_origins: ndarray, (m*n*w*h, 3)
                 Origin points to shoot rays.
-            ray_edges: ndarray, (m*n*x*y, 2, 3)
+            ray_edges: ndarray, (m*n*w*h, 2, 3)
                 Ray segments.
-            ray_directions: ndarray, (m*n*x*y, 3)
+            ray_directions: ndarray, (m*n*w*h, 3)
                 Ray directions starting at origins
         """
 
