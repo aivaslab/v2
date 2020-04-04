@@ -280,7 +280,7 @@ class V2Lib:
         # Also, if there is no intersection, we need to set the angle to pi/2
         v2_a = self._angle(self.ray_directions, normals)
         v2_a[v2_a > np.pi / 2] = np.pi - v2_a[v2_a > np.pi / 2]
-        v2_a[np.where(v2_d == 1)] = np.pi / 2
+        v2_a[np.where(v2_d == 2 * self.r)] = np.pi / 2
 
         v2_s = self._sin(v2_a)
         v2_c = self._cos(v2_a)
