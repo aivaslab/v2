@@ -8,15 +8,15 @@ PJ_ROOT = '/home/tengyu/Documents/research/v2/v2'
 EXP_DIR = os.path.join(PJ_ROOT, 'exp')
 PROJ_DATA_DIR = os.path.join(PJ_ROOT, 'data')
 CKPT_DIR = os.path.join(EXP_DIR, 'ckpt')
-RST_DIR = os.path.join(EXP_DIR, 'rst')
+RST_DIR = os.path.join(EXP_DIR, 'res')
 
-ModelNet_DIR = os.path.join(DATA_DIR, 'ModelNet')
-ModelNet40_DIR = os.path.join(ModelNet_DIR, 'ModelNet40')
-ModelNet40OBJ_DIR = os.path.join(ModelNet_DIR, 'ModelNet40_OBJ')
+ModelNet = os.path.join(DATA_DIR, 'ModelNet')
 
-ModelNet40_c10000_DIR = os.path.join(ModelNet_DIR, 'ModelNet40_c10000')
-ModelNet40_c22500_DIR = os.path.join(ModelNet_DIR, 'ModelNet40_c22500')
-ModelNet40_c40000_DIR = os.path.join(ModelNet_DIR, 'ModelNet40_c40000')
+ModelNet40 = os.path.join(ModelNet, 'ModelNet40')
 
-ModelNet40_MDSC_CDSC = os.path.join(ModelNet_DIR, 'mdsc_cdsc')  # mesh dsc channels and convex hull dsc channels
-ModelNet40_MDSC_CDSC_C16384 = os.path.join(ModelNet40_MDSC_CDSC, 'C16384')
+ModelNet40_NP = os.path.join(ModelNet40, 'ModelNet40_NP')
+ModelNet40_OBJ = os.path.join(ModelNet40, 'ModelNet40_OBJ')
+
+ModelNet40_D = os.path.join(ModelNet40, 'D')
+ModelNet40_DSC = os.path.join(ModelNet40, 'DSC')
+ModelNet40_DSCDSC = os.path.join(ModelNet40, 'DSCDSC')

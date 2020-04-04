@@ -80,7 +80,6 @@ class V2On(Dataset):
         self.labels = list(map(self._get_label, self.files))
         self.transform = transform
 
-
         m = 128
         n = 128
         h = 1

@@ -19,170 +19,53 @@ from v2.utils import conf
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
-def plot_cams_faces(ip2l0_diag, np_edges, cam_settings, np_faces=None):
-    l0 = np_edges[:, 0, :]
+def plt_v2_config(v2, convh, mesh, ax):
+    # ax = Axes3D(plt.figure(figsize=(10, 10)))
+    cube_d = v2.r
+    ax.set_xlim(-cube_d, cube_d)
+    ax.set_ylim(-cube_d, cube_d)
+    ax.set_zlim(-cube_d, cube_d)
+    ax.scatter(v2.ray_origins[:, 0], v2.ray_origins[:, 1], v2.ray_origins[:, 2])
 
-    # matplotlib.use('TKAGG')
-    ax3 = Axes3D(plt.figure(figsize=(10, 10)))
+    if convh:
+        convh_v2_p = v2.convh_v2_p[~(v2.convh_v2_d == 2 * v2.r).flatten()]
+        ax.scatter(convh_v2_p[:, 0], convh_v2_p[:, 1], convh_v2_p[:, 2])
+        tris = v2.convex_hull.triangles
 
-    # Draw cameras
-    cube_d = 0.5
-    ax3.set_xlim(-cube_d, cube_d)
-    ax3.set_ylim(-cube_d, cube_d)
-    ax3.set_zlim(-cube_d, cube_d)
-    ax3.scatter(l0[:, 0], l0[:, 1], l0[:, 2])
+    else:
+        mesh_v2_p = v2.mesh_v2_p[~(v2.mesh_v2_d == 2 * v2.r).flatten()]
+        ax.scatter(mesh_v2_p[:, 0], mesh_v2_p[:, 1], mesh_v2_p[:, 2])
+        tris = v2.mesh.triangles
 
-    # Draw intersected points
-    a = (ip2l0_diag[:, 0] >= 0.3) | (ip2l0_diag[:, 0] <= -0.3)
-    b = (ip2l0_diag[:, 1] >= 0.3) | (ip2l0_diag[:, 1] <= -0.3)
-    c = (ip2l0_diag[:, 2] >= 0.3) | (ip2l0_diag[:, 2] <= -0.3)
-    d = a | b | c
-    ip2l0_diag = ip2l0_diag[~d, :]
-
-    ax3.scatter(ip2l0_diag[:, 0], ip2l0_diag[:, 1], ip2l0_diag[:, 2])
-    # major_ticks = np.arange(-0.5, 0.5, 1/31)
-    # ax3.set_xticks(major_ticks)
-    # ax3.set_yticks(major_ticks)
-    # ax3.set_zticks(major_ticks)
-    ax3.grid(True)
-    # plt.set_linewidth(1/31)
-
-    # Draw triangle faces
-    if np_faces is not None:
-        for vtx in np_faces:
-            # vtx = np_faces
+    if mesh:
+        for vtx in tris:
             tri = art3d.Poly3DCollection([vtx])
             tri.set_color(colors.rgb2hex(sp.rand(3)))
             tri.set_edgecolor('k')
-            ax3.add_collection3d(tri)
+            ax.add_collection3d(tri)
 
-    # plt.show()
-    parameters = cam_settings.split('_')
-    m, n, x, y = list(map(int, parameters[:4]))
-    d = float(parameters[-1])
-    # plt.title('m=%d\nn=%d\nx=%d\ny=%d\nd=%.2f' % (m, n, x, y, d), fontsize=20, y=0.5, x=0.1)
     plt.axis('off')
-    # plt.show()
-
-    with open('/home/tengyu/Desktop/cvpr_workshop/fig2/cam/%s_cam.png' % cam_settings, 'wb+') as f:
-        plt.savefig(f, bbox_inches='tight')
 
 
-def plot_d_img(ip2l0_d_min, row_num, col_num, cam_settings):
-    d_img = np.reshape(ip2l0_d_min.cpu().numpy(), (row_num, col_num))
-    plt.clf()
-    plt.imshow(d_img, vmin=0, vmax=1, cmap='gray')
-    # with open('/home/tengyu/Desktop/%s_img.png' % cam_settings, 'wb+') as f:
-    #     plt.savefig(f, bbox_inches='tight')
-    ax = plt.gca()
-    # ax.set_xticks(np.arange(0, 25 * 9, 25))
-    # ax.set_yticks(np.arange(0, 10 * 6, 10))
-    plt.axis('off')
-    plt.show()
-    # with open('/home/tengyu/Desktop/cvpr_workshop/fig4/d/%s_cam.png' % cam_settings, 'wb+') as f:
-    #     plt.imsave(f, d_img, vmin=0, vmax=1, cmap='gray')
+def plt_v2_repr(v2, channel, ax):
+    reprs = [v2.mesh_v2_d, v2.mesh_v2_s, v2.mesh_v2_c,
+             v2.convh_v2_d, v2.convh_v2_s, v2.convh_v2_c]
 
 
-def draw_designated_rep():
-    # ToDo: should allow non-integer case, otherwise the evolving process is not smooth enough
-    # side = 840  # number of columns and rows per view in the start condition,
-    # factors = all_factors(side)  # side is the number of col/row per view
-    #
-    # for fc in factors:
-    #     s_col = side // fc
-    #     s_row = side // fc + 2
-    #     p_col = fc
-    #     p_row = fc
-    #     d = 1 / 200 / 2
+    if channel == 0 or channel == 3:  # Depth channel
+        ax.imshow(reprs[channel], vmin=0, vmax=2 * v2.r, cmap='gray')
+    else:  # Sine, Cosine channel
+        ax.imshow(reprs[channel], vmin=0, vmax=1, cmap='gray')
 
-    cvpr_evolving_obj = 401
-    cvpr_evolving_cam = [
-        [4, 1 + 2, 50, 50, 0.02],
-        [8, 2 + 2, 25, 25, 0.02],
-        [20, 5 + 2, 10, 10, 0.02],
-        [40, 10 + 2, 5, 5, 0.02],
-        [100, 25 + 2, 2, 2, 0.02],
-        [200, 50 + 2, 1, 1, 0.02]
-    ]
-
-    cvpr_v2_obj = 0
-    cvpr_v2_cam = [
-        [4, 1 + 2, 50, 50, 0.02],
-        [8, 2 + 2, 25, 25, 0.02],
-        [20, 5 + 2, 10, 10, 0.02],
-        [40, 10 + 2, 5, 5, 0.02],
-        [100, 25 + 2, 2, 2, 0.02],
-        [200, 50 + 2, 1, 1, 0.02]
-    ]
-
-    # s_col = 200
-    # s_row = 52
-    # p_col = 1
-    # p_row = 1
-    # d = 0.02
-
-    fig_2_cam = [
-        [4, 1 + 2, 25, 25, 1 / 50],
-        [4, 1 + 2, 25, 25, 1 / 100],
-        [4, 4 + 2, 25, 25, 1 / 100],
-        [8, 4 + 2, 25, 25, 1 / 100],
-        [8, 4 + 2, 25, 25, 1 / 200],
-        [8, 8 + 2, 10, 10, 1 / 200],
-        [16, 16 + 2, 5, 5, 1 / 200],
-        [16, 16 + 2, 1, 1, 1 / 32],
-        [16, 16 + 2, 1, 1, 1 / 200],
-
-    ]
-
-
-    for cam in cvpr_evolving_cam[:]:
-        s_col = 16
-        s_row = 16 + 2
-        p_col = 5
-        p_row = 5
-        d = 1 / 16
-
-        # s_col, s_row, p_col, p_row, d = cam
-        cam_settings = '%d_%d_%d_%d_%.04f' % (s_col, s_row - 2, p_col, p_row, d)
-        # print('Cam settings: %s' % cam_settings)
-        # Cam Settings
-        np_cams_xyz, np_cams_edges = v2_generator.get_cams(s_col, s_row, p_col, p_row, d, polar=False)
-
-        # Data Settings
-        data_dir = conf.ModelNet40FacesNP_DIR
-        all_pk_files = v2_generator.get_modelnet_pickle_files(data_dir)
-
-        torch_cams_edges = torch.from_numpy(np_cams_edges).to(DEVICE)
-
-        j = 80
-
-        # for i, e in enumerate(all_pk_files):
-        #     if 'chair' not in e:
-        #         continue
-        #
-        #     if 'test' not in e:
-        #         continue
-
-        # print(i)
-        np_faces_xyz_pk = all_pk_files[j]
-
-        with open(np_faces_xyz_pk, 'rb') as f:
-            np_faces_xyz = pickle.load(f)
-
-        torch_faces_xyz = torch.from_numpy(np_faces_xyz).to(DEVICE)
-        ip2l0_diag, ip2l0_d_min, ip2l0_sin, ip2l0_cos = v2_generator.e2f_stepped(torch_cams_edges, torch_faces_xyz, face_interval=1024, edge_interval=1024)
-        plot_cams_faces(np.reshape(ip2l0_diag.cpu().numpy(), (-1, 3)),
-                        np_cams_edges, cam_settings, np_faces_xyz)
-
-        # Rendering depth pickle
-        # plot_d_img(ip2l0_d_min, (s_row - 2) * p_row, s_col * p_col, cam_settings)
-        break
+    ax.axis('off')
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    plt.tight_layout()
 
 
 def fig4():
     cams = sorted(glob.glob('/home/tengyu/Desktop/cvpr_workshop/fig4/cam/*'), key=lambda x: int(os.path.basename(x).split('_')[0]))
     ds = sorted(glob.glob('/home/tengyu/Desktop/cvpr_workshop/fig4/d/*'), key=lambda x: int(os.path.basename(x).split('_')[0]))
-
 
     def draw_line(i, cam, d):
         ax1 = fig.add_subplot(spec2[i, 0])

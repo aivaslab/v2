@@ -122,7 +122,7 @@ class V2Lib:
         with open(dst, 'wb+') as f:
             pickle.dump(self.v2, f)
 
-    def plt_v2_repr(self):
+    def plt_v2_repr(self, save_dir=''):
         fig, axes = plt.subplots(2, 3)
         reprs = [self.mesh_v2_d, self.mesh_v2_s, self.mesh_v2_c,
                  self.convh_v2_d, self.convh_v2_s, self.convh_v2_c]
@@ -136,9 +136,13 @@ class V2Lib:
             ax.set_yticklabels([])
 
         plt.tight_layout()
-        plt.show()
 
-    def plt_v2_mesh_d(self):
+        if save_dir:
+            plt.savefig(save_dir)
+        else:
+            plt.show()
+
+    def plt_v2_mesh_d(self, save_dir=''):
         plt.imshow(self.mesh_v2_d, vmin=0, vmax=2 * self.r, cmap='gray')
         plt.axis('off')
         ax = plt.gca()
@@ -146,18 +150,26 @@ class V2Lib:
         ax.set_yticklabels([])
 
         plt.tight_layout()
-        plt.show()
 
-    def plt_v2_config(self, convh=False, mesh=False):
+        if save_dir:
+            plt.savefig(save_dir)
+        else:
+            plt.show()
+
+    def plt_v2_config(self, convh=False, mesh=False, save_dir=''):
         ax = Axes3D(plt.figure(figsize=(10, 10)))
         cube_d = self.r
         ax.set_xlim(-cube_d, cube_d)
         ax.set_ylim(-cube_d, cube_d)
         ax.set_zlim(-cube_d, cube_d)
         ax.scatter(self.ray_origins[:, 0], self.ray_origins[:, 1], self.ray_origins[:, 2])
-        ax.scatter(self.mesh_v2_p[:, 0], self.mesh_v2_p[:, 1], self.mesh_v2_p[:, 2])
+
+        mesh_v2_p = self.mesh_v2_p[~(self.mesh_v2_d == 2 * self.r).flatten()]
+        ax.scatter(mesh_v2_p[:, 0], mesh_v2_p[:, 1], mesh_v2_p[:, 2])
+
         if convh:
-            ax.scatter(self.convh_v2_p[:, 0], self.convh_v2_p[:, 1], self.convh_v2_p[:, 2])
+            convh_v2_p = self.convh_v2_p[~(self.convh_v2_d == 2 * self.r).flatten()]
+            ax.scatter(convh_v2_p[:, 0], convh_v2_p[:, 1], convh_v2_p[:, 2])
 
         if mesh:
             for vtx in self.mesh.triangles:
@@ -167,7 +179,11 @@ class V2Lib:
                 ax.add_collection3d(tri)
 
         plt.axis('off')
-        plt.show()
+
+        if save_dir:
+            plt.savefig(save_dir)
+        else:
+            plt.show()
 
     def _v2repr(self, v2repr_core):
         self.mesh_v2_d, self.mesh_v2_a, self.mesh_v2_s, self.mesh_v2_c, self.mesh_v2_p = v2repr_core(self.mesh)
