@@ -14,6 +14,7 @@ ModelNet = os.path.join(DATA_DIR, 'ModelNet')
 
 ModelNet40 = os.path.join(ModelNet, 'ModelNet40')
 
+ModelNet40_ALIGNED = os.path.join(ModelNet40, 'ModelNet40_ALIGNED')
 ModelNet40_NP = os.path.join(ModelNet40, 'ModelNet40_NP')
 ModelNet40_OBJ = os.path.join(ModelNet40, 'ModelNet40_OBJ')
 

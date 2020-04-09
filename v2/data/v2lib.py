@@ -34,7 +34,7 @@ class V2Lib:
         self.ray_origins, self.ray_edges, self.ray_directions = self._v2_rays()
         self.ray_orig, self.ray_dire = self._np2torch(self.ray_origins, self.ray_directions)  # Torch tensor
 
-        self.obj_file = None
+        self.mesh_path = None
         self.mesh = None
         self.convex_hull = None
 
@@ -88,13 +88,13 @@ class V2Lib:
 
         self._v2repr(v2repr_core)
 
-    def load_obj(self, obj_file, random_rotations, fix_rotations, random_translation):
-        """ Load .obj mesh from the file system. random_rotations and random_translation will randomly rotate and
+    def load_mesh(self, mesh_path, random_rotations, fix_rotations, random_translation):
+        """ Load .obj or .off mesh from the file system. random_rotations and random_translation will randomly rotate and
         translate the object.
 
         Args:
-            obj_file: str
-                the file path for the .obj mesh file
+            mesh_path: str
+                the file path for the .obj/.off mesh file
             random_rotations: bool, default True
                 the default value is the same as the S2CNN repo
             fix_rotations: list, [a, z, c]
@@ -105,14 +105,14 @@ class V2Lib:
         Returns:
 
         """
-        self.obj_file = obj_file
-        self.mesh = mesh = ToMesh(random_rotations, fix_rotations, random_translation)(obj_file)
+        self.mesh_path = mesh_path
+        self.mesh = mesh = ToMesh(random_rotations, fix_rotations, random_translation)(mesh_path)
 
         # An object typically has 3 dimensions, length, width, and height,
         # but some of them may only have 2, such as curtains, where one dimension will very close to 0.
         # In such case, we can't calculate the convex hull, thus we directly use the mesh itself as convex hull.
         if np.any(np.all(np.abs(self.mesh.vertices) < 1e-12, axis=0)):
-            print('=== Object is a 2d object. Directly use mesh as convex hull: {} ==='.format(self.obj_file))
+            print('=== Object is a 2d object. Directly use mesh as convex hull: {} ==='.format(self.mesh_path))
             self.convex_hull = convex_hull = self.mesh
         else:
             self.convex_hull = convex_hull = self.mesh.convex_hull
