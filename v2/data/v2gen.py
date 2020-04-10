@@ -89,12 +89,18 @@ def main():
     from v2.utils.vis import plt_v2_config, plt_v2_repr
     import matplotlib.pyplot as plt
 
-    last_frot_i = 0
+    # Continue numbers. This is where I stopped last time
+    # Rotation: 2/34, V2 Configuration: 1/8, Object No: 556/3983
+
+    last_frot_i = 1  # Rotation
+    last_fac_i = 0  # V2 Configuration
+    last_i = 555  # Object No
+
     for ri, zyx in enumerate(frot_i[last_frot_i:]):
         # fig = plt.figure(figsize=(80, 80))
         # ax_i = 1
         z, y, x = zyx
-        for fac_i, fac in enumerate(facs):
+        for fac_i, fac in enumerate(facs[last_fac_i:]):
             m = n = int(math.sqrt(fac))
             h = w = int(math.sqrt(C // fac))
             d = 2 / S
@@ -115,7 +121,6 @@ def main():
             start = time.time()
 
             # 3193 is an airplane mesh with small number of faces. Good for debugging
-            last_i = 0
             for i, obj in enumerate(mesh_paths[last_i:]):
                 v2generator(obj)
 
@@ -157,10 +162,14 @@ def main():
                 # ax_i += 1
                 print('Rotation: {}/{}, V2 Configuration: {}/{}, Object No: {}/{}, Time Spent: {}/{}'.format(
                     ri + 1 + last_frot_i, len(frot_i),
-                    fac_i + 1, len(facs),
+                    fac_i + 1 + last_fac_i, len(facs),
                     i + 1 + last_i, len(mesh_paths),
                     (time.time() - start), (time.time() - start) / (i + 1) * (len(mesh_paths) - last_i)
                 ))
+
+            last_i = 0  # Object No
+        last_fac_i = 0  # V2 Configuration
+
         #         break
         #     break
         # break
