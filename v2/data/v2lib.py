@@ -6,7 +6,7 @@ import trimesh
 import numpy as np
 import scipy as sp
 import matplotlib
-# matplotlib.use('TKAGG')
+matplotlib.use('TKAGG')
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 
@@ -387,6 +387,21 @@ class V2Lib:
             ray_directions: ndarray, (m*n*w*h, 3)
                 Ray directions starting at origins
         """
+        def debug_plt():
+            from mpl_toolkits.mplot3d import Axes3D, art3d  # noqa: F401 unused import
+
+            ax = Axes3D(plt.figure(figsize=(10, 10)))
+            cube_d = self.r
+            ax.set_xlim(-cube_d, cube_d)
+            ax.set_ylim(-cube_d, cube_d)
+            ax.set_zlim(-cube_d, cube_d)
+
+            ax.scatter(x0, y0, z0)
+            c = 0.1
+            ax.scatter(x0 + vx[0, :] * c, y0 + vx[1, :] * c, z0 + vx[2, :] * c)
+            ax.scatter(x0 + vy[0, :] * c, y0 + vy[1, :] * c, z0 + vy[2, :] * c)
+            # ax.scatter(x0 + vz[0, :], y0 + vz[1, :], z0 + vz[2, :])
+            plt.show()
 
         s_d = -2 * self.s_view  # the direction vector shooting to the (0, 0, 0) with length 1, -self.s_view - self.s_view
 
@@ -399,7 +414,6 @@ class V2Lib:
         vx[:, np.logical_and(x0 == 0, y0 == 0)] = np.vstack((np.ones(x0.shape),  # polar case
                                                              np.zeros(x0.shape),
                                                              np.zeros(x0.shape)))[:, np.logical_and(x0 == 0, y0 == 0)]
-
         vx = vx / np.linalg.norm(vx, 2, axis=0)
 
         vy = np.vstack((-z0, -z0 * y0 / x0, (x0 ** 2 + y0 ** 2) / x0))  # y basis
@@ -407,10 +421,11 @@ class V2Lib:
         vy[:, np.logical_and(x0 == 0, y0 == 0)] = np.vstack((np.zeros(x0.shape),  # polar case
                                                              np.ones(x0.shape),
                                                              np.zeros(x0.shape)))[:, np.logical_and(x0 == 0, y0 == 0)]
-        vy[:, x0 > 0] = -vy[:, x0 > 0]  # quadrant 1, 2 cases
         vy = vy / np.linalg.norm(vy, 2, axis=0)
+        # Since we are uv unwrapping along the z-axis, we need to make sure that all plane towards consistently along z-axis
+        vy[:, vy[2, :] < 0] = -vy[:, vy[2, :] < 0]
 
-        vz = self.s_view  # z basis, the one shooting to the origin
+        vz = -self.s_view  # z basis, the one shooting to the origin
         vz = vz / np.linalg.norm(vz, 2, axis=0)
 
         # The meshgrid for the new orthonormal basis
