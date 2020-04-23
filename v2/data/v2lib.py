@@ -3,10 +3,11 @@ import glob
 import torch
 import pickle
 import trimesh
+import math
 import numpy as np
 import scipy as sp
 import matplotlib
-matplotlib.use('TKAGG')
+# matplotlib.use('TKAGG')
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 
@@ -56,6 +57,7 @@ class V2Lib:
                 s2cnn: the method used in the s2cnn paper, Driscoll-Healy grid, https://github.com/jonas-koehler/s2cnn
                 trimeshuv: uv sphere sampling from trimesh library
                 geodesic: ToDo
+                fibonacci: https://stackoverflow.com/a/26127012/5966326
         Returns:
 
         """
@@ -65,6 +67,8 @@ class V2Lib:
             return self._sphere_lib('dh')
         elif method == 'v2_soft':
             return self._sphere_lib('soft')
+        elif method == 'v2_fibonacci':
+            return self._sphere_lib('fibonacci')
         elif method == 's2cnn_dh':
             return self._sphere_s2cnn('Driscoll-Healy')
         elif method == 's2cnn_soft':
@@ -423,7 +427,7 @@ class V2Lib:
                                                              np.zeros(x0.shape)))[:, np.logical_and(x0 == 0, y0 == 0)]
         vy = vy / np.linalg.norm(vy, 2, axis=0)
         # Since we are uv unwrapping along the z-axis, we need to make sure that all plane towards consistently along z-axis
-        vy[:, vy[2, :] < 0] = -vy[:, vy[2, :] < 0]
+        vy[:, vy[2, :] > 0] = -vy[:, vy[2, :] > 0]
 
         vz = -self.s_view  # z basis, the one shooting to the origin
         vz = vz / np.linalg.norm(vz, 2, axis=0)
@@ -465,7 +469,11 @@ class V2Lib:
         The original implementation can be found here:
         https://github.com/AMLab-Amsterdam/lie_learn
         lie_learn/spaces/S2.py - meshgrid(b, grid_type='Driscoll-Healy')
+
         Uniform is based on http://corysimon.github.io/articles/uniformdistn-on-sphere/, to avoid polar clustering
+
+        Fibonacci is for uniformly packing points on the sphere:
+        The Fibonacci sphere algorithm: https://stackoverflow.com/a/26127012/5966326
         """
         def dh():  # Driscoll Healy
             phi_ = np.linspace(0, np.pi, self.m, endpoint=False)
@@ -477,6 +485,26 @@ class V2Lib:
             phi_ = np.linspace(np.pi * start, np.pi * end, self.m)
             return phi_
 
+        def fibonacci(samples):
+            s_view_ = []
+            phi_ = math.pi * (3. - math.sqrt(5.))  # golden angle in radians
+
+            if samples == 1:
+                s_view_.append((0, 1, 0))
+                return s_view_
+
+            for i in range(samples):
+                fi_y = 1 - (i / float(samples - 1)) * 2  # fi_y goes from 1 to -1
+                radius = math.sqrt(1 - fi_y * fi_y)  # radius at fi_y
+
+                fi_theta_ = phi_ * i  # golden angle increment
+
+                fi_x = math.cos(fi_theta_) * radius
+                fi_z = math.sin(fi_theta_) * radius
+
+                s_view_.append((fi_x, fi_y, fi_z))
+            return s_view_
+
         def uniform():  # Uniform
             if not self.polar:
                 phi_ = np.linspace(0, 1, self.m + 2)  # +2 because we will remove both polar points later
@@ -485,6 +513,11 @@ class V2Lib:
                 phi_ = np.linspace(0, 1, self.m)
             phi_ = np.arccos(1 - 2 * phi_)
             return phi_
+
+        if method == 'fibonacci':
+            s_view = fibonacci(self.m * self.n)
+            s_view = np.array(s_view).T
+            return s_view
 
         theta = np.linspace(0, 2 * np.pi, self.n, endpoint=False)
 
