@@ -15,7 +15,7 @@ from trimesh.ray.ray_triangle import RayMeshIntersector
 from trimesh import creation
 from mpl_toolkits.mplot3d import Axes3D, art3d  # noqa: F401 unused import
 from v2.utils import conf
-from v2.data.repr_s2cnn import ToMesh
+from v2.utils import mesh_op
 
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -92,25 +92,23 @@ class V2Lib:
 
         self._v2repr(v2repr_core)
 
-    def load_mesh(self, mesh_path, random_rotations, fix_rotations, random_translation):
+    def load_mesh(self, mesh_path, rotation, translation):
         """ Load .obj or .off mesh from the file system. random_rotations and random_translation will randomly rotate and
         translate the object.
 
         Args:
             mesh_path: str
                 the file path for the .obj/.off mesh file
-            random_rotations: bool, default True
-                the default value is the same as the S2CNN repo
-            fix_rotations: list, [a, z, c]
-                Fix rotation, specify by rotations on a, z, c axis
-            random_translation: float, default 0,1
-                the default value is the same as the S2CNN repo
+            rotation: list, [z, y, x]
+                The rotation degree around z-, y-, and x- axis of the mesh
+            translation: float
+                The translation distance of the mesh
 
         Returns:
 
         """
         self.mesh_path = mesh_path
-        self.mesh = mesh = ToMesh(random_rotations, fix_rotations, random_translation)(mesh_path)
+        self.mesh = mesh = mesh_op.ToMesh(rotation, translation)(mesh_path)
 
         # An object typically has 3 dimensions, length, width, and height,
         # but some of them may only have 2, such as curtains, where one dimension will very close to 0.
@@ -120,6 +118,7 @@ class V2Lib:
             self.convex_hull = convex_hull = self.mesh
         else:
             self.convex_hull = convex_hull = self.mesh.convex_hull
+
         return mesh, convex_hull
 
     def save_v2(self, dst):

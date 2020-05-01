@@ -1,11 +1,14 @@
 import os
 import math
+import time
+import itertools
+
 from v2.data.v2lib import V2Lib
 from v2.utils import conf, util
 
 
 class V2Generator(V2Lib):
-    def __init__(self, m, n, w, h, d, r, polar, ssm, v2m, rrot, frot, rtr):
+    def __init__(self, m, n, w, h, d, r, polar, ssm, v2m, rot, tr):
         """ V2 Generator
 
         Args:
@@ -46,24 +49,20 @@ class V2Generator(V2Lib):
                 's2cnn': Ray-triangle intersection implemented in s2cnn paper. In fact, it is the same as the 'trimesh'
                     method, as it calculates the intersection points by the same method in trimesh library
 
-            rrot: bool
-                Random rotation, whether to add random rotation to the loaded mesh or not
-
-            frot: list, [z, y, x]
+            rot: list, [z, y, x]
                 Fix rotation, specify by rotations on a, z, c axis
                 z: z-axis in Toybox, z+ direction
                 y: y-axis in Toybox, y+ direction
                 x: x-axis in Toybox, x+ direction
 
-            rtr: float
-                Random translation, how large to add random translation to the loaded mesh
+            tr: float
+                Translation value, add translation to the loaded mesh
 
         """
         super().__init__(m, n, w, h, d, r, polar, ssm)
         self.v2m = v2m
-        self.rrot = rrot
-        self.frot = frot
-        self.rtr = rtr
+        self.rot = rot
+        self.tr = tr
 
     def __call__(self, mesh_path):
         """ Load mesh file and add data augmentation
@@ -73,110 +72,87 @@ class V2Generator(V2Lib):
                 the file path for the .obj mesh file
 
         """
-        super().load_mesh(mesh_path, self.rrot, self.frot, self.rtr)
+        super().load_mesh(mesh_path, self.rot, self.tr)
         super().v2repr(self.v2m)
 
 
 def main():
+    # V2 subdivisions based on the perfect factors of total pixels
     S = 128  # Side Pixels
     C = S ** 2  # Total Pixels
     facs = util.get_perfect_factors(C)
-    frot_z = list(range(12)) + [0] * 24
-    frot_y = [0] * 12 + list(range(12)) + [0] * 12
-    frot_x = [0] * 24 + list(range(12))
-    frot_i = list(zip(frot_z, frot_y, frot_x))
-    frot_i = frot_i[: 12] + frot_i[13: 24] + frot_i[25:]
-    from v2.utils.vis import plt_v2_config, plt_v2_repr
-    import matplotlib.pyplot as plt
 
-    # Continue numbers. This is where I stopped last time
-    # Rotation: 2/34, V2 Configuration: 1/8, Object No: 556/3983
+    # Rotation matrix around z-, y-, and x- axis, every axis has 12 rotations
+    rot_z = list(range(12)) + [0] * 24
+    rot_y = [0] * 12 + list(range(12)) + [0] * 12
+    rot_x = [0] * 24 + list(range(12))
+    rot_zyx = list(zip(rot_z, rot_y, rot_x))
+    rot_zyx = rot_zyx[: 12] + rot_zyx[13: 24] + rot_zyx[25:]
 
-    last_frot_i = 1  # Rotation
-    last_fac_i = 0  # V2 Configuration
-    last_i = 555  # Object No
+    # Get all mesh files
+    # 3193 is an airplane mesh with small number of faces. Good for debugging
+    train_set, test_set = util.modelnet40_aligned()
+    mesh_paths = train_set + test_set
 
-    for ri, zyx in enumerate(frot_i[last_frot_i:]):
-        # fig = plt.figure(figsize=(80, 80))
-        # ax_i = 1
+    # All configurations
+    all_config = [rot_zyx, facs, mesh_paths]
+    all_config = list(itertools.product(*all_config))
+
+    last_conf_i = 0
+    start = time.time()
+
+    for conf_i, all_config_comb in enumerate(all_config[last_conf_i:]):
+        zyx, fac, obj = all_config_comb
+
+        last_rot_i = last_conf_i // (len(facs) * len(mesh_paths))
+        last_fac_i = last_conf_i % (len(facs) * len(mesh_paths)) // (len(facs))
+        last_mesh_i = last_conf_i % len(mesh_paths)
+
+        rot_i = conf_i // (len(facs) * len(mesh_paths))
+        fac_i = conf_i % (len(facs) * len(mesh_paths)) // (len(facs))
+        mesh_i = conf_i % len(mesh_paths)
+
         z, y, x = zyx
-        for fac_i, fac in enumerate(facs[last_fac_i:]):
-            m = n = int(math.sqrt(fac))
-            h = w = int(math.sqrt(C // fac))
-            d = 2 / S
-            r = 1
-            polar = True
-            ssm = 'v2_soft'
-            v2m = 'mt'
-            rtr = 0
-            rrot = False
-            frot = [z / 12 * 2 * math.pi, y / 12 * 2 * math.pi, x / 12 * 2 * math.pi]
-            v2_config = '{}_{}_{}_{}_{}|{}'.format(m, n, h, w, 2, S)
 
-            v2generator = V2Generator(m, n, w, h, d, r, polar, ssm, v2m, rrot, frot, rtr)
-            train_set, test_set = util.modelnet40_aligned()
-            mesh_paths = train_set + test_set
+        m = n = int(math.sqrt(fac))
+        h = w = int(math.sqrt(C // fac))
+        d = 2 / S
+        r = 1
+        polar = True
+        ssm = 'v2_soft'
+        v2m = 'mt'
+        tr = 0
+        rot = [z / 12 * 2 * math.pi, y / 12 * 2 * math.pi, x / 12 * 2 * math.pi]
+        v2_config = '{}_{}_{}_{}_{}|{}'.format(m, n, h, w, 2, S)
 
-            import time
-            start = time.time()
+        v2generator = V2Generator(m, n, w, h, d, r, polar, ssm, v2m, rot, tr)
+        v2generator(obj)
 
-            # 3193 is an airplane mesh with small number of faces. Good for debugging
-            for i, obj in enumerate(mesh_paths[last_i:]):
-                v2generator(obj)
+        ca_, set_, id_ = util.get_ca_set_id(obj)
+        dst = os.path.join(conf.ModelNet40_DSCDSC,
+                           '{}_C{}'.format('SOFT', C),
+                           ca_,
+                           set_,
+                           id_,
+                           '{}'.format('_'.join(map(lambda x_: '{:.0f}'.format(x_), zyx))),
+                           '{}.pickle'.format(v2_config)
+                           )
 
-                ca_, set_, id_ = util.get_ca_set_id(obj)
-                dst = os.path.join(conf.ModelNet40_DSCDSC,
-                                   '{}_C{}'.format('SOFT', C),
-                                   ca_,
-                                   set_,
-                                   id_,
-                                   '{}'.format('_'.join(map(lambda x_: '{:.0f}'.format(x_), zyx))),
-                                   '{}.pickle'.format(v2_config)
-                                   )
-                dir_ = os.path.dirname(dst)
-                if not os.path.exists(dir_):
-                    os.makedirs(dir_)
-                v2generator.save_v2(dst)
+        dir_ = os.path.dirname(dst)
+        if not os.path.exists(dir_):
+            os.makedirs(dir_)
+        v2generator.save_v2(dst)
 
-                # Visualizations
-                # v2generator.plt_v2_config(mesh=True)
-                # v2generator.plt_v2_repr()
-                # v2generator.plt_v2_mesh_d()
-                # v2generator.mesh.show()
-                # v2generator.convex_hull.show()
-
-                # ax_j = ax_i
-                #
-                # ax = fig.add_subplot(8, 8, ax_j, projection='3d')
-                # plt_v2_config(v2generator, convh=False, mesh=True, ax=ax)
-                #
-                # ax_j += 8
-                # ax = fig.add_subplot(8, 8, ax_j, projection='3d')
-                # plt_v2_config(v2generator, convh=True, mesh=True, ax=ax)
-                #
-                # for channel in range(6):
-                #     ax_j += 8
-                #     ax = fig.add_subplot(8, 8, ax_j)
-                #     plt_v2_repr(v2generator, channel, ax)
-                #
-                # ax_i += 1
-                print('Rotation: {}/{}, V2 Configuration: {}/{}, Object No: {}/{}, Time Spent: {}/{}'.format(
-                    ri + 1 + last_frot_i, len(frot_i),
-                    fac_i + 1 + last_fac_i, len(facs),
-                    i + 1 + last_i, len(mesh_paths),
-                    (time.time() - start), (time.time() - start) / (i + 1) * (len(mesh_paths) - last_i)
-                ))
-
-            last_i = 0  # Object No
-        last_fac_i = 0  # V2 Configuration
-
-        #         break
-        #     break
-        # break
-        # plt.savefig(os.path.join('/home/tengyu/Dropbox/meeting/04102020/v2_samples_C16384/{}_{}_{}.png'.format(z, y, x)))
+        print('All: {}/{}, Rotation: {}/{}, V2 Configuration: {}/{}, Object No: {}/{}, Time Spent: {}/{}'.format(
+            conf_i + 1 + last_conf_i, len(all_config),
+            rot_i + 1 + last_rot_i, len(rot_zyx),
+            fac_i + 1 + last_fac_i, len(facs),
+            mesh_i + 1 + last_mesh_i, len(mesh_paths),
+            (time.time() - start), (time.time() - start) / (conf_i + 1) * (len(all_config) - last_conf_i)
+        ))
 
 
 if __name__ == '__main__':
-    import cProfile
-    main()
+    # import cProfile
     # cProfile.run('main()', sort='tottime')
+    main()

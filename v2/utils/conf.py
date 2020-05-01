@@ -21,3 +21,12 @@ ModelNet40_OBJ = os.path.join(ModelNet40, 'ModelNet40_OBJ')
 ModelNet40_D = os.path.join(ModelNet40, 'D')
 ModelNet40_DSC = os.path.join(ModelNet40, 'DSC')
 ModelNet40_DSCDSC = os.path.join(ModelNet40, 'DSCDSC')
+
+ModelNet40_ALLCATE = ['airplane', 'bathtub', 'bed', 'bench', 'bookshelf',
+                      'bottle', 'bowl', 'car', 'chair', 'cone',
+                      'cup', 'curtain', 'desk', 'door', 'dresser',
+                      'flower_pot', 'glass_box', 'guitar', 'keyboard', 'lamp',
+                      'laptop', 'mantel', 'monitor', 'night_stand', 'person',
+                      'piano', 'plant', 'radio', 'range_hood', 'sink',
+                      'sofa', 'stairs', 'stool', 'table', 'tent',
+                      'toilet', 'tv_stand', 'vase', 'wardrobe', 'xbox']
