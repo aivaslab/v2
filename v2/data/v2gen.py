@@ -98,18 +98,18 @@ def main():
     all_config = [rot_zyx, facs, mesh_paths]
     all_config = list(itertools.product(*all_config))
 
-    last_conf_i = 0
+    last_conf_i = 92825
     start = time.time()
 
     for conf_i, all_config_comb in enumerate(all_config[last_conf_i:]):
         zyx, fac, obj = all_config_comb
 
         last_rot_i = last_conf_i // (len(facs) * len(mesh_paths))
-        last_fac_i = last_conf_i % (len(facs) * len(mesh_paths)) // (len(facs))
+        last_fac_i = last_conf_i % (len(facs) * len(mesh_paths)) // (len(mesh_paths))
         last_mesh_i = last_conf_i % len(mesh_paths)
 
         rot_i = conf_i // (len(facs) * len(mesh_paths))
-        fac_i = conf_i % (len(facs) * len(mesh_paths)) // (len(facs))
+        fac_i = conf_i % (len(facs) * len(mesh_paths)) // (len(mesh_paths))
         mesh_i = conf_i % len(mesh_paths)
 
         z, y, x = zyx
@@ -143,13 +143,17 @@ def main():
             os.makedirs(dir_)
         v2generator.save_v2(dst)
 
-        print('All: {}/{}, Rotation: {}/{}, V2 Configuration: {}/{}, Object No: {}/{}, Time Spent: {}/{}'.format(
+        logger_content = 'All: {}/{}, Rotation: {}/{}, V2 Configuration: {}/{}, Object No: {}/{}, Time Spent: {}/{}'.format(
             conf_i + 1 + last_conf_i, len(all_config),
             rot_i + 1 + last_rot_i, len(rot_zyx),
             fac_i + 1 + last_fac_i, len(facs),
             mesh_i + 1 + last_mesh_i, len(mesh_paths),
-            (time.time() - start), (time.time() - start) / (conf_i + 1) * (len(all_config) - last_conf_i)
-        ))
+            (time.time() - start), (time.time() - start) / (conf_i + 1) * (len(all_config) - last_conf_i))
+
+        print(logger_content)
+        with open('logger.txt', 'a+') as f:
+            f.write(logger_content)
+            f.write('\n')
 
 
 if __name__ == '__main__':
