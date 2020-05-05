@@ -98,19 +98,20 @@ def main():
     all_config = [rot_zyx, facs, mesh_paths]
     all_config = list(itertools.product(*all_config))
 
-    last_conf_i = 92825
+    last_conf_i = 175268
+    last_zyx, last_fac, last_obj = all_config[last_conf_i]
+    last_rot_i = rot_zyx.index(last_zyx)
+    last_fac_i = facs.index(last_fac)
+    last_mesh_i = mesh_paths.index(last_obj)
+
     start = time.time()
 
     for conf_i, all_config_comb in enumerate(all_config[last_conf_i:]):
+
         zyx, fac, obj = all_config_comb
-
-        last_rot_i = last_conf_i // (len(facs) * len(mesh_paths))
-        last_fac_i = last_conf_i % (len(facs) * len(mesh_paths)) // (len(mesh_paths))
-        last_mesh_i = last_conf_i % len(mesh_paths)
-
-        rot_i = conf_i // (len(facs) * len(mesh_paths))
-        fac_i = conf_i % (len(facs) * len(mesh_paths)) // (len(mesh_paths))
-        mesh_i = conf_i % len(mesh_paths)
+        rot_i = rot_zyx.index(zyx)
+        fac_i = facs.index(fac)
+        mesh_i = mesh_paths.index(obj)
 
         z, y, x = zyx
 
@@ -143,11 +144,12 @@ def main():
             os.makedirs(dir_)
         v2generator.save_v2(dst)
 
-        logger_content = 'All: {}/{}, Rotation: {}/{}, V2 Configuration: {}/{}, Object No: {}/{}, Time Spent: {}/{}'.format(
+        logger_content = 'All: {}/{}, Rotation: {}/{} {}, V2 Configuration: {}/{}, {}' \
+                         ' Object No: {}/{} {}, Time Spent: {}/{}'.format(
             conf_i + 1 + last_conf_i, len(all_config),
-            rot_i + 1 + last_rot_i, len(rot_zyx),
-            fac_i + 1 + last_fac_i, len(facs),
-            mesh_i + 1 + last_mesh_i, len(mesh_paths),
+            rot_i + 1, len(rot_zyx), '{}'.format('_'.join(map(lambda x_: '{:.0f}'.format(x_), zyx))),
+            fac_i + 1, len(facs), v2_config,
+            mesh_i + 1, len(mesh_paths), os.path.basename(obj),
             (time.time() - start), (time.time() - start) / (conf_i + 1) * (len(all_config) - last_conf_i))
 
         print(logger_content)
