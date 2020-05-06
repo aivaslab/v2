@@ -16,6 +16,7 @@ from trimesh import creation
 from mpl_toolkits.mplot3d import Axes3D, art3d  # noqa: F401 unused import
 from v2.utils import conf
 from v2.utils import mesh_op
+from scipy.spatial.qhull import QhullError  # pylint: disable=E0611
 
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -113,11 +114,11 @@ class V2Lib:
         # An object typically has 3 dimensions, length, width, and height,
         # but some of them may only have 2, such as curtains, where one dimension will very close to 0.
         # In such case, we can't calculate the convex hull, thus we directly use the mesh itself as convex hull.
-        if np.any(np.all(np.abs(self.mesh.vertices) < 1e-12, axis=0)):
+        try:
+            self.convex_hull = convex_hull = mesh.convex_hull
+        except QhullError:
             print('=== Object is a 2d object. Directly use mesh as convex hull: {} ==='.format(self.mesh_path))
-            self.convex_hull = convex_hull = self.mesh
-        else:
-            self.convex_hull = convex_hull = self.mesh.convex_hull
+            self.convex_hull = convex_hull = mesh
 
         return mesh, convex_hull
 

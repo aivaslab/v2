@@ -98,7 +98,7 @@ def main():
     all_config = [rot_zyx, facs, mesh_paths]
     all_config = list(itertools.product(*all_config))
 
-    last_conf_i = 175268
+    last_conf_i = 259975
     last_zyx, last_fac, last_obj = all_config[last_conf_i]
     last_rot_i = rot_zyx.index(last_zyx)
     last_fac_i = facs.index(last_fac)
