@@ -128,6 +128,7 @@ Here are the expected outputs generated from the example code.
 ```v2visualizer.plt_mesh()``` | ```v2visualizer.plt_v2_repr()``` | ```v2visualizer.plt_v2_config(mesh_p=True, convh_p=False, mesh=True, convh=False)```
 ------------------------------|--------------------------------- | ------------------------------------------------------------------------------------
 !["plt_mesh"](readme/plt_mesh.png) | !["plt_v2_repr"](readme/plt_v2_repr.png) | !["plt_v2_config"](readme/plt_v2_config.png)
+
 **Figure 3.** Expected outputs of the example code.
 
 ## Acknowledgment
