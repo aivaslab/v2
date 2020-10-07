@@ -3,7 +3,7 @@ This is the repo to generate the V<sup>2</sup> representation defined in the pap
 [_Variable-Viewpoint Representations for 3D Object Recognition_](https://arxiv.org/pdf/2002.03131.pdf).
 
 !["The Rich V2 Representation"](readme/v2_sample_1.gif)
-<p style="text-align: center;"><b>Figure 1.</b> The rich V2 representation.</p>
+**Figure 1.** The rich V2 representation.</p>
 
 ## Abstract
 While infants are learning the object recognition, the visual signals projecting to their eyes are
@@ -42,8 +42,8 @@ longitude lines.
   - Please see the V2Lib.sphere_sample in v2/v2lib.py for details. 
 
 !["Various V2 parameters and their corresponding V2 representations"](readme/v2_sample_2.png)
-<p style="text-align: center;"><b>Figure 2.</b> Various V<sup>2</sup> parameters and their corresponding
-V<sup>2</sup> representations.</p>
+**Figure 2.** Various V<sup>2</sup> parameters and their corresponding
+V<sup>2</sup> representations.
 
 We also support two parameters to control the position of the loaded 3D object:
 - _rot_, list, [z+, y+, x+], i.e., how many degrees you want the object to rotate around the z+, y+, and x+ axis.
@@ -128,6 +128,7 @@ Here are the expected outputs generated from the example code.
 ```v2visualizer.plt_mesh()``` | ```v2visualizer.plt_v2_repr()``` | ```v2visualizer.plt_v2_config(mesh_p=True, convh_p=False, mesh=True, convh=False)```
 ------------------------------|--------------------------------- | ------------------------------------------------------------------------------------
 !["plt_mesh"](readme/plt_mesh.png) | !["plt_v2_repr"](readme/plt_v2_repr.png) | !["plt_v2_config"](readme/plt_v2_config.png)
+**Figure 3.** Expected outputs of the example code.
 
 ## Acknowledgment
 This work was done at [AIVAS Lab](https://my.vanderbilt.edu/aivaslab/), [Vanderbilt University](https://www.vanderbilt.edu/).
