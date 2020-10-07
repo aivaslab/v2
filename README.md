@@ -68,8 +68,8 @@ Tomas Möller and Ben Trumbore, is a fast method for calculating the intersectio
 dimensions without needing precomputation of the plane equation of the plane containing the triangle."
  
 Based on the original algorithm and
-the [raytriangle-test](https://github.com/johnnovak/raytriangle-test) repo
-, we implemented a vectorized version to utilize GPU acceleration to save time for the projecting
+the [raytriangle-test](https://github.com/johnnovak/raytriangle-test) repo,
+we implemented a vectorized version to utilize GPU acceleration to save time for the projecting
 representation generating with large matrix breakdown and reassemble to save GPU memory.
 
 ## Installation
