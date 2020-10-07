@@ -65,6 +65,25 @@ dimensions without needing precomputation of the plane equation of the plane con
 original algorithm, we implemented a vectorized version to utilize GPU acceleration to save time for the projecting
 representation generating.
 
+## Installation
+You might need to install the following dependencies:
+```
+numpy>=1.17.3
+scipy>=1.3.1
+matplotlib>=3.1.1
+torch>=1.3.0
+torchvision>=0.4.1
+trimesh>=3.2.39  # https://github.com/mikedh/trimesh
+lie_learn  # https://github.com/AMLab-Amsterdam/lie_learn
+```
+We provided a _requirements.txt_ file, if you want to install the environment from scratch.
+```
+pip install -r requirements.txt
+```
+Then, _cd_ into this repo and install by
+```
+pip install -e .
+```
 ## Example
 This V<sup>2</sup> framework supports .off and .obj formats, which are the two common formats for storing
 3D object mesh. The following is the example code to use the V2Generator and the V2Visualizer. You can also
