@@ -49,6 +49,10 @@ We also support two parameters to control the position of the loaded 3D object:
 - _rot_, list, [z+, y+, x+], i.e., how many degrees you want the object to rotate around the z+, y+, and x+ axis.
 - _tr_, list, [x+, y+, z+], i.e., how far you want the object to translate along the x+, y+, z+ axis.
 
+We want to credit to the s2cnn team for their [s2cnn](https://github.com/jonas-koehler/s2cnn) and
+[lie_learn](https://github.com/AMLab-Amsterdam/lie_learn) implementation where we adopted
+for the ray-triangle intersection speed comparison and the mesh loading functions.
+
 ### Vectorized Möller-Trumbore Algorithm
 To project a 3D object to the 2D surface sampled above, the core algorithm is the ray-triangle intersection algorithm
 since most of the meshes are formed by face triangles.
@@ -59,11 +63,14 @@ This repo implemented different ways to calculate the ray-triangle intersection 
   
 All these methods achieve the same goal, that is, calculating the intersection points between the rays shot from the above
 projecting surface and the object, whereas 'mt' standing for Möller-Trumbore is the fastest algorithm among all
-of the supported methods. By Wiki, "The Möller–Trumbore ray-triangle intersection algorithm, named after its inventors
+of the supported methods. By [Möller–Trumbore intersection algorithm Wiki](https://en.wikipedia.org/wiki/M%C3%B6ller%E2%80%93Trumbore_intersection_algorithm), "The Möller–Trumbore ray-triangle intersection algorithm, named after its inventors
 Tomas Möller and Ben Trumbore, is a fast method for calculating the intersection of a ray and a triangle in three
-dimensions without needing precomputation of the plane equation of the plane containing the triangle." Based on the
-original algorithm, we implemented a vectorized version to utilize GPU acceleration to save time for the projecting
-representation generating.
+dimensions without needing precomputation of the plane equation of the plane containing the triangle."
+ 
+Based on the original algorithm and
+the [raytriangle-test](https://github.com/johnnovak/raytriangle-test) repo
+, we implemented a vectorized version to utilize GPU acceleration to save time for the projecting
+representation generating with large matrix breakdown and reassemble to save GPU memory.
 
 ## Installation
 You might need to install the following dependencies:
