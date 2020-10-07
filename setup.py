@@ -1,4 +1,3 @@
-import os
 from setuptools import setup, find_packages
 
 setup(
@@ -9,5 +8,5 @@ setup(
     license='MIT',
     keywords='V2',
     url='https://github.com/tengyum/v2',
-    packages=find_packages(exclude=['build']),
+    packages=find_packages(),
 )
