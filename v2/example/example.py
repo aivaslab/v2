@@ -1,4 +1,5 @@
 import math
+import matplotlib.pyplot as plt
 
 from v2.v2gen import V2Generator
 from v2.v2vis import V2Vis
@@ -26,7 +27,7 @@ def main():
 
     v2visualizer.plt_mesh()
     v2visualizer.plt_v2_repr()
-    v2visualizer.plt_v2_config(mesh_p=True, convh_p=False, mesh=True, convh=False)
+    v2visualizer.plt_v2_config(ax=None, mesh_p=True, convh_p=False, mesh=True, convh=False, plt_show=True)
 
 
 if __name__ == '__main__':
