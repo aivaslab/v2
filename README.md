@@ -80,7 +80,9 @@ scipy>=1.3.1
 matplotlib>=3.1.1
 torch>=1.3.0
 torchvision>=0.4.1
+networkx>=2.5
 trimesh>=3.2.39  # https://github.com/mikedh/trimesh
+pyglet>=1.5.11
 lie_learn  # https://github.com/AMLab-Amsterdam/lie_learn
 ```
 We provided a _requirements.txt_ file, if you want to install the environment from scratch.
